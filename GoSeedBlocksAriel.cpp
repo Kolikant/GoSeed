@@ -116,7 +116,7 @@ std::vector<std::string> split_string(std::string str, const std::string &delimi
     return result;
 }
 
-void put_v2_in_hash_table(std::ifstream &fv2, std::unordered_map<std::string, int> hashmap) {
+void put_v2_in_hash_table(std::ifstream &fv2, std::unordered_map<std::string, int> &hashmap) {
     std::string content;
     while (std::getline(fv2, content)) {
         std::vector<std::string> splitLine = split_string(content, ",");
@@ -294,11 +294,12 @@ int main(int argc, char *argv[])
     GRBEnv *env = 0;
     GRBVar *blocks_migrated = 0;
     GRBVar *blocks_replicated = 0;
-    GRBVar *blocks_disjoint = 0;
+    GRBVar *blocks_intersect = 0;
     GRBVar *files = 0;
     GRBConstr *constrains = 0;
     GRBConstr *constrains_hint = 0;
     bool need_to_free_hint_constrains = false;
+    std::vector<bool> blocks_is_in_intersect;
     std::vector<GRBLinExpr> left_side;
     std::vector<GRBLinExpr> left_side_hint; //files that does not have blocks should stay at source.
     try
@@ -319,7 +320,7 @@ int main(int argc, char *argv[])
         //set the model's variables.
         blocks_migrated = model.addVars(num_of_blocks, GRB_BINARY);
         blocks_replicated = model.addVars(num_of_blocks, GRB_BINARY);
-        blocks_disjoint = model.addVars(num_of_blocks, GRB_BINARY);
+        blocks_intersect = model.addVars(num_of_blocks, GRB_BINARY);
         files = model.addVars(num_of_files, GRB_BINARY);
 
         model.update();
@@ -358,9 +359,16 @@ int main(int argc, char *argv[])
             else if (splitted_content[0] == "B")
             {
                 //disjoinCheckAndConstraint
-                if( hashmap.find(splitted_content[2]) == hashmap.end() ) {
-                    std::cout << "dup" << std::endl                   
-                } 
+                if( hashmap.find(std::string(splitted_content[2])) == hashmap.end() ) {
+                    //in case it is not in the intersection, di should be 1 as to add it to the cost
+                    // model.addConstr(GRBLinExpr(blocks_intersect[blocks]), GRB_EQUAL, 1, "");
+                    blocks_is_in_intersect.push_back(false);
+                } else {
+                    //if it is in the intersection, it can choose not to pay, but can also choose to pay, so no contraint needed
+                    //the best solutions would always prefer not to pay anyway.
+                    // model.addConstr(GRBLinExpr(blocks_intersect[blocks]), GRB_EQUAL, 0, "");
+                    blocks_is_in_intersect.push_back(true);
+                }
 
                 GRBLinExpr no_orphans = 0.0;
                 block_sn = std::stoi(splitted_content[1]);
@@ -397,6 +405,7 @@ int main(int argc, char *argv[])
         senses_hint.assign(left_side_hint.size(), GRB_EQUAL);
 
         constrains = model.addConstrs(&left_side[0], &senses[0], &right_side[0], &names[0], (int)left_side.size());
+
         if ((int)left_side_hint.size() != 0) //found at least one empty file.
         {
             constrains_hint = model.addConstrs(&left_side_hint[0], &senses_hint[0], &right_side_hint[0], &names_hint[0], (int)left_side_hint.size());
@@ -418,7 +427,9 @@ int main(int argc, char *argv[])
         for (int i = 0; i < num_of_blocks; i++)
         {
             all_migrated_blocks += blocks_migrated[i] * block_size[i];
-            all_replicated_blocks += blocks_replicated[i] * block_size[i];
+            if( !blocks_is_in_intersect[i] ) {
+                all_replicated_blocks +=blocks_replicated[i] * block_size[i]  ;      
+            }
             total_block_size_Kbytes += block_size[i];
         }
         M_Kbytes = total_block_size_Kbytes * M_presents / 100;             //assign the number of bytes to migrate
