@@ -18,8 +18,8 @@ std::string depth_level = UNDEFINED_STRING;          //File system depth.
 std::string file_system_start = UNDEFINED_STRING;    //ID of the first file system.
 std::string file_system_end = UNDEFINED_STRING;      //ID of the last file system.
 int average_block_size = UNDEFINED_INT;              //Average block size in the system (corresponding to rabin fingerprint)
-double M_presents = UNDEFINED_DOUBLE;                //The % we want to migrate to an empty destination.
-double epsilon_presents = UNDEFINED_DOUBLE;          //The tolerance we can afford in the migration.
+double M_percentage = UNDEFINED_DOUBLE;                //The % we want to migrate to an empty destination.
+double epsilon_percentage = UNDEFINED_DOUBLE;          //The tolerance we can afford in the migration.
 std::string input_file_name = UNDEFINED_STRING;      //Name of the input file, contains all the information needed.
 std::string benchmarks_file_name = UNDEFINED_STRING; //File we save our benchmarks, every line will be a different migration plan summary.
 double model_time_limit = UNDEFINED_DOUBLE;          //Time limit for the solver.
@@ -28,8 +28,12 @@ double M_Kbytes = UNDEFINED_DOUBLE;                  //KB we desire to migrate.
 double epsilon_Kbytes = UNDEFINED_DOUBLE;            //KB we can tolerate.
 double Kbytes_to_replicate = UNDEFINED_DOUBLE;       //KB to replicated as a result from the migration plan.
 long int num_of_blocks = UNDEFINED_INT;              //Number of blocks in the input file
-double actual_M_presents = UNDEFINED_DOUBLE;         //The % of physical containers we decided to migrate.
+double actual_M_percentage = UNDEFINED_DOUBLE;         //The % of physical containers we decided to migrate.
 double actual_M_Kbytes = UNDEFINED_DOUBLE;           //Number of containers we decided to migrate.
+double actual_R_percentage = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
+double actual_R_percentage_free = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
+double actual_R_percentage_not_free = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
+double actual_R_Kbytes = UNDEFINED_DOUBLE;           //Number of containers we decided to repicate.
 int num_of_files = UNDEFINED_INT;                    //Number of files in our input.
 std::string seed = UNDEFINED_STRING;                 //Seed for the solver.
 std::string number_of_threads = UNDEFINED_STRING;    //Number of threads we restrict our solver to run with.
@@ -134,7 +138,7 @@ void put_v2_in_hash_table(std::ifstream &fv2, std::unordered_map<std::string, in
  * @param files Assigned ILP variables for the files that move/stay.
  * @param print_to Output file for the files to move.
  */
-void calculate_migration_and_save_solution(GRBVar *blocks_migrated, GRBVar *files, std::string print_to, double *block_size)
+void calculate_migration_and_save_solution(GRBVar *blocks_migrated, GRBVar *blocks_replicated, GRBVar *blocks_intersect, GRBVar *files, std::string print_to, double *block_size)
 {
     std::ofstream solution(print_to, std::ios_base::app);
     if (!solution)
@@ -142,6 +146,7 @@ void calculate_migration_and_save_solution(GRBVar *blocks_migrated, GRBVar *file
         std::cout << "Cannot open output file" << print_to << std::endl;
         exit(1);
     }
+    solution << "this is the list of the files we should move:" << std::endl;
     for (int i = 0; i < num_of_files; i++)
     {
         if (files[i].get(GRB_DoubleAttr_X) != 0.0) //file is moved
@@ -149,17 +154,46 @@ void calculate_migration_and_save_solution(GRBVar *blocks_migrated, GRBVar *file
             solution << i << std::endl;
         }
     }
-    double total_blocks = 0.0;
+    double total_blocksMigrated = 0.0;
+    double total_blocksReplicated = 0.0;
+    double total_replicated_for_free = 0.0;
     //Sum KB of the migrated blocks.
     for (long int i = 0; i < num_of_blocks; i++)
     {
         if (blocks_migrated[i].get(GRB_DoubleAttr_X) != 0.0)
         {
-            total_blocks += block_size[i];
+            total_blocksMigrated += block_size[i];
         }
     }
-    actual_M_Kbytes = total_blocks;
-    actual_M_presents = (actual_M_Kbytes / total_block_size_Kbytes) * 100.0;
+    //Sum KB of the replicated blocks.
+    for (long int i = 0; i < num_of_blocks; i++)
+    {
+        if (blocks_replicated[i].get(GRB_DoubleAttr_X) != 0.0)
+        {
+            total_blocksReplicated += block_size[i];
+            if (blocks_intersect[i].get(GRB_DoubleAttr_X) != 0.0) {
+                total_replicated_for_free += block_size[i];
+            }
+        }
+    }    
+    actual_M_Kbytes = total_blocksMigrated;
+    actual_R_Kbytes = total_blocksReplicated;
+
+    actual_M_percentage = (actual_M_Kbytes / total_block_size_Kbytes) * 100.0;
+    actual_R_percentage = (actual_R_Kbytes / total_block_size_Kbytes) * 100.0;
+    actual_R_percentage_free = (total_replicated_for_free  / total_block_size_Kbytes) * 100.0;
+    actual_R_percentage_not_free = ((total_blocksReplicated - total_replicated_for_free) / total_block_size_Kbytes) * 100.0;
+    solution << "migrated..." << std::endl;
+    solution << "actual_M_Kbytes: " << actual_M_Kbytes << std::endl;
+    solution << "actual_M_percentage: " << actual_M_percentage << std::endl;
+    solution << "replicated..." << std::endl;
+    solution << "actual_R_Kbytes: " << total_blocksReplicated << std::endl;
+    solution << "free: " << total_replicated_for_free << std::endl;
+    solution << "not free: " << total_blocksReplicated - total_replicated_for_free << std::endl;    
+    solution << "actual_R_percentage: " << actual_R_percentage << std::endl;    
+    solution << "free: " << actual_R_percentage_free << std::endl;    
+    solution << "not free: " << actual_R_percentage_not_free << std::endl;    
+    solution << "____________________________________" << std::endl << std::endl;
     solution.close();
 }
 
@@ -186,11 +220,11 @@ void save_statistics(double total_time, double solver_time)
         << average_block_size << ","
         << num_of_blocks << ","
         << num_of_files << ","
-        << M_presents << ","
+        << M_percentage << ","
         << M_Kbytes << ","
-        << actual_M_presents << ","
+        << actual_M_percentage << ","
         << actual_M_Kbytes << ","
-        << epsilon_presents << ","
+        << epsilon_percentage << ","
         << epsilon_Kbytes << ","
         << Kbytes_to_replicate << ","
         << ((double)Kbytes_to_replicate) * 100.0 / ((double)total_block_size_Kbytes) << ","
@@ -259,8 +293,8 @@ int main(int argc, char *argv[])
     input_file_name = std::string(argv[1]);
 	input_file_name_v2 = std::string(argv[2]);
     benchmarks_file_name = std::string(argv[3]);
-    M_presents = std::stod(std::string(argv[4]));
-    epsilon_presents = std::stod(std::string(argv[5]));
+    M_percentage = std::stod(std::string(argv[4]));
+    epsilon_percentage = std::stod(std::string(argv[5]));
     std::string write_solution = std::string(argv[6]);
     filter_factor = std::stod(std::string(argv[7]));
     model_time_limit = std::stod(std::string(argv[8]));
@@ -424,20 +458,23 @@ int main(int argc, char *argv[])
         //done adding to model the constrains
         GRBLinExpr all_migrated_blocks = 0.0;
         GRBLinExpr all_replicated_blocks = 0.0;
+        GRBLinExpr unused_free_replication = 0.0;
         for (int i = 0; i < num_of_blocks; i++)
         {
             all_migrated_blocks += blocks_migrated[i] * block_size[i];
             if( !blocks_is_in_intersect[i] ) {
-                all_replicated_blocks +=blocks_replicated[i] * block_size[i]  ;      
+                all_replicated_blocks += blocks_replicated[i] * block_size[i];      
+            } else {
+                // unused_free_replication -= blocks_replicated[i] * 0.001;
             }
             total_block_size_Kbytes += block_size[i];
         }
-        M_Kbytes = total_block_size_Kbytes * M_presents / 100;             //assign the number of bytes to migrate
-        epsilon_Kbytes = total_block_size_Kbytes * epsilon_presents / 100; //assign the epsilon in bytes.
+        M_Kbytes = total_block_size_Kbytes * M_percentage / 100;             //assign the number of bytes to migrate
+        epsilon_Kbytes = total_block_size_Kbytes * epsilon_percentage / 100; //assign the epsilon in bytes.
 
         model.addConstr(all_migrated_blocks <= M_Kbytes + epsilon_Kbytes, "5"); // sum of the migrated blocks should be equal to M+- epsilon.
         model.addConstr(all_migrated_blocks >= M_Kbytes - epsilon_Kbytes, "5"); // sum of the migrated blocks should be equal to M+- epsilon.
-        model.setObjective(all_replicated_blocks, GRB_MINIMIZE);                //minimize the sum of replicated content.
+        model.setObjective(all_replicated_blocks + unused_free_replication, GRB_MINIMIZE);                //minimize the sum of replicated content.
 
         save_block_size_array(block_size);
         delete[] block_size;
@@ -470,7 +507,7 @@ int main(int argc, char *argv[])
             //print the results.
             try
             {
-                calculate_migration_and_save_solution(blocks_migrated, files, write_solution, block_size);
+                calculate_migration_and_save_solution(blocks_migrated, blocks_replicated, blocks_intersect, files, write_solution, block_size);
             }
             catch (...)
             {
