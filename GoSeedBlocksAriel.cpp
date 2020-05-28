@@ -458,23 +458,22 @@ int main(int argc, char *argv[])
         //done adding to model the constrains
         GRBLinExpr all_migrated_blocks = 0.0;
         GRBLinExpr all_replicated_blocks = 0.0;
-        GRBLinExpr unused_free_replication = 0.0;
+        GRBLinExpr totalTraffic = 0.0;
+
         for (int i = 0; i < num_of_blocks; i++)
         {
-            all_migrated_blocks += blocks_migrated[i] * block_size[i];
+            // all_migrated_blocks += blocks_migrated[i] * block_size[i];
             if( !blocks_is_in_intersect[i] ) {
-                all_replicated_blocks += blocks_replicated[i] * block_size[i];      
-            } else {
-                // unused_free_replication -= blocks_replicated[i] * 0.001;
-            }
+                totalTraffic += blocks_migrated[i] * block_size[i] + blocks_replicated[i] * block_size[i];
+            } 
             total_block_size_Kbytes += block_size[i];
         }
         M_Kbytes = total_block_size_Kbytes * M_percentage / 100;             //assign the number of bytes to migrate
         epsilon_Kbytes = total_block_size_Kbytes * epsilon_percentage / 100; //assign the epsilon in bytes.
 
-        model.addConstr(all_migrated_blocks <= M_Kbytes + epsilon_Kbytes, "5"); // sum of the migrated blocks should be equal to M+- epsilon.
-        model.addConstr(all_migrated_blocks >= M_Kbytes - epsilon_Kbytes, "5"); // sum of the migrated blocks should be equal to M+- epsilon.
-        model.setObjective(all_replicated_blocks + unused_free_replication, GRB_MINIMIZE);                //minimize the sum of replicated content.
+        model.addConstr(totalTraffic <= M_Kbytes + epsilon_Kbytes, "5"); // sum of the migrated blocks should be equal to M+- epsilon.
+        model.addConstr(totalTraffic >= M_Kbytes - epsilon_Kbytes, "5"); // sum of the migrated blocks should be equal to M+- epsilon.
+        model.setObjective(all_replicated_blocks, GRB_MINIMIZE);                //minimize the sum of replicated content.
 
         save_block_size_array(block_size);
         delete[] block_size;
