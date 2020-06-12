@@ -32,7 +32,10 @@ double actual_M_percentage = UNDEFINED_DOUBLE;         //The % of physical conta
 double actual_M_Kbytes = UNDEFINED_DOUBLE;           //Number of containers we decided to migrate.
 double actual_R_percentage = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
 double actual_traffic_Percentage = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
+double actual_volume_clean_percentage = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
+double actual_volume_add_percentage = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
 double actual_volume_change_percentage = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
+double total_traffic_and_clean_percentage = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
 double actual_R_Kbytes = UNDEFINED_DOUBLE;           //Number of containers we decided to repicate.
 int num_of_files = UNDEFINED_INT;                    //Number of files in our input.
 std::string seed = UNDEFINED_STRING;                 //Seed for the solver.
@@ -192,21 +195,24 @@ void calculate_migration_and_save_solution(GRBVar *blocks_migrated, GRBVar *bloc
     actual_M_percentage = (actual_M_Kbytes / total_block_size_Kbytes) * 100.0;
     actual_R_percentage = (actual_R_Kbytes / total_block_size_Kbytes) * 100.0;
     actual_traffic_Percentage = (total_traffic  / total_block_size_Kbytes) * 100.0;
+    actual_volume_clean_percentage = (total_volume_change_clean  / total_block_size_Kbytes) * 100.0;
+    actual_volume_add_percentage = (total_volume_change_add  / total_block_size_Kbytes) * 100.0;
     actual_volume_change_percentage = ((total_volume_change_add - total_volume_change_clean) / total_block_size_Kbytes) * 100.0;
+    total_traffic_and_clean_percentage = ((total_traffic + total_volume_change_clean) / total_block_size_Kbytes) * 100.0;
     solution << "migrated..." << std::endl;
-    solution << "actual_M_Kbytes: " << actual_M_Kbytes << std::endl;
     solution << "actual_M_percentage: " << actual_M_percentage << std::endl;
     solution << "replicated..." << std::endl;
-    solution << "actual_R_Kbytes: " << total_blocksReplicated << std::endl;
     solution << "actual_R_percentage: " << actual_R_percentage << std::endl;
     solution << "traffic..." << std::endl;
     solution << "traffic_KBytes: " << total_traffic << std::endl;
     solution << "actual_traffic_Percentage: " << actual_traffic_Percentage << std::endl;
     solution << "volume_change..." << std::endl;
-    solution << "volume_change_add: " << total_volume_change_add << std::endl;
-    solution << "volume_change_clean: " << total_volume_change_clean << std::endl;
-    solution << "volume_change_KBytes: " << total_volume_change_add - total_volume_change_clean << std::endl;
+    solution << "actual_volume_clean: " << total_volume_change_clean << std::endl;
+    solution << "actual_volume_clean_percentage: " << actual_volume_clean_percentage << std::endl;
+    solution << "actual_volume_add_percentage: " << actual_volume_add_percentage << std::endl;
     solution << "actual_volume_change_Percentage: " << actual_volume_change_percentage << std::endl;
+    solution << "traffic and clean" << std::endl;
+    solution << "total_traffic_and_clean_percentage: " << total_traffic_and_clean_percentage << std::endl;
     solution << "____________________________________" << std::endl << std::endl;
     solution.close();
 }
@@ -405,18 +411,13 @@ int main(int argc, char *argv[])
             }
             else if (splitted_content[0] == "B")
             {
-                //disjoinCheckAndConstraint
+                //disjoinCheck
                 if( hashmap.find(std::string(splitted_content[2])) == hashmap.end() ) {
-                    //in case it is not in the intersection, di should be 1 as to add it to the cost
-                    // model.addConstr(GRBLinExpr(blocks_intersect[blocks]), GRB_EQUAL, 1, "");
                     blocks_is_in_intersect.push_back(false);
                 } else {
-                    //if it is in the intersection, it can choose not to pay, but can also choose to pay, so no contraint needed
-                    //the best solutions would always prefer not to pay anyway.
-                    // model.addConstr(GRBLinExpr(blocks_intersect[blocks]), GRB_EQUAL, 0, "");
                     blocks_is_in_intersect.push_back(true);
                 }
-
+                
                 GRBLinExpr no_orphans = 0.0;
                 block_sn = std::stoi(splitted_content[1]);
                 //skip block_id its useless
@@ -472,30 +473,40 @@ int main(int argc, char *argv[])
         GRBLinExpr all_migrated_blocks = 0.0;
         GRBLinExpr all_replicated_blocks = 0.0;
         GRBLinExpr totalTraffic = 0.0;
+        GRBLinExpr totalClean = 0.0;
+        GRBLinExpr totalAdd = 0.0;
         GRBLinExpr totalVolume = 0.0;
 
         for (int i = 0; i < num_of_blocks; i++)
         {
-            // all_migrated_blocks += blocks_migrated[i] * block_size[i];
+            all_migrated_blocks += blocks_migrated[i] * block_size[i];
+            all_replicated_blocks += blocks_replicated[i] * block_size[i];
             if( !blocks_is_in_intersect[i] ) {
                 totalTraffic += blocks_migrated[i] * block_size[i] + blocks_replicated[i] * block_size[i];
-                totalVolume += blocks_replicated[i] * block_size[i];
+                totalAdd += blocks_replicated[i] * block_size[i];
             } else {
-                totalVolume -= blocks_migrated[i] * block_size[i];
+                totalClean += blocks_migrated[i] * block_size[i];
             }
             total_block_size_Kbytes += block_size[i];
         }
-        M_Kbytes = total_block_size_Kbytes * M_percentage / 100;             //assign the number of bytes to migrate
-        epsilon_Kbytes = total_block_size_Kbytes * epsilon_percentage / 100; //assign the epsilon in bytes.
+        totalVolume = totalAdd - totalClean;
+        M_Kbytes = total_block_size_Kbytes * M_percentage / 100;                //assign the number of bytes to migrate
+        epsilon_Kbytes = total_block_size_Kbytes * epsilon_percentage / 100;    //assign the epsilon in bytes.
 
-        model.addConstr(totalTraffic <= M_Kbytes + epsilon_Kbytes, "5"); // shouldn't pass more than M bytes
-        model.setObjective(totalVolume, GRB_MINIMIZE);                   //minimize the impact we have on the total volume.
+        std::cout << epsilon_percentage << " percent is " << epsilon_Kbytes << std::endl;
+
+        model.addConstr(totalTraffic <= M_Kbytes);                              // shouldn't pass more than M bytes
+        model.addConstr(all_migrated_blocks >= epsilon_Kbytes);                 // shouldn't pass less than epsilon bytes
+        model.setObjective(totalVolume, GRB_MINIMIZE);                          //minimize the impact we have on the total volume.
 
         save_block_size_array(block_size);
         delete[] block_size;
         std::cout << "start optimize now..." << std::endl;
         auto s1 = std::chrono::high_resolution_clock::now();
+        // model.update();
+        // model.write("debud.lp");
         model.optimize();
+
         double solver_time = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - s1).count();
 
         block_size = new double[num_of_blocks];

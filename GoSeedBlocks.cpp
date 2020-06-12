@@ -424,6 +424,8 @@ int main(int argc, char *argv[])
         delete[] block_size;
         std::cout << "start optimize now..." << std::endl;
         auto s1 = std::chrono::high_resolution_clock::now();
+        model.update();
+        model.write("debud.lp");
         model.optimize();
         double solver_time = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - s1).count();
 
