@@ -15,16 +15,16 @@
 #define UNDEFINED_STATUS "UNDEFINED_STATUS"
 
 std::string depth_level = UNDEFINED_STRING;          //File system depth.
-std::string file_system_start = UNDEFINED_STRING;    //ID of the first file system.
-std::string file_system_end = UNDEFINED_STRING;      //ID of the last file system.
+std::string v1_file_system_start = UNDEFINED_STRING;    //ID of the first file system.
+std::string v2_file_system_end = UNDEFINED_STRING;      //ID of the last file system.
 int average_block_size = UNDEFINED_INT;              //Average block size in the system (corresponding to rabin fingerprint)
-double M_percentage = UNDEFINED_DOUBLE;                //The % we want to migrate to an empty destination.
-double epsilon_percentage = UNDEFINED_DOUBLE;          //The tolerance we can afford in the migration.
+double T_percentage = UNDEFINED_DOUBLE;              //The % we want to migrate to an empty destination.
+double MM_percentage = UNDEFINED_DOUBLE;             //The tolerance we can afford in the migration.
 std::string input_file_name = UNDEFINED_STRING;      //Name of the input file, contains all the information needed.
 std::string benchmarks_file_name = UNDEFINED_STRING; //File we save our benchmarks, every line will be a different migration plan summary.
 double model_time_limit = UNDEFINED_DOUBLE;          //Time limit for the solver.
 bool time_limit_option = false;                      //Do we restrict the solver in time limit? (True if model_time_limit is greater than 0).
-double M_Kbytes = UNDEFINED_DOUBLE;                  //KB we desire to migrate.
+double T_Kbytes = UNDEFINED_DOUBLE;                  //KB we desire to migrate.
 double epsilon_Kbytes = UNDEFINED_DOUBLE;            //KB we can tolerate.
 double Kbytes_to_replicate = UNDEFINED_DOUBLE;       //KB to replicated as a result from the migration plan.
 long int num_of_blocks = UNDEFINED_INT;              //Number of blocks in the input file
@@ -37,7 +37,7 @@ double actual_volume_add_percentage = UNDEFINED_DOUBLE;         //The % of physi
 double actual_volume_change_percentage = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
 double total_traffic_and_clean_percentage = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
 double actual_R_Kbytes = UNDEFINED_DOUBLE;           //Number of containers we decided to repicate.
-int num_of_files = UNDEFINED_INT;                    //Number of files in our input.
+int num_of_files_v1 = UNDEFINED_INT;                    //Number of files in our input.
 std::string seed = UNDEFINED_STRING;                 //Seed for the solver.
 std::string number_of_threads = UNDEFINED_STRING;    //Number of threads we restrict our solver to run with.
 std::string solution_status = UNDEFINED_STATUS;      //Solver status at the end of the optimization.
@@ -92,7 +92,7 @@ void get_num_of_blocks_and_files(std::ifstream &f, int num_of_metadata_lines)
         type_of_info = content.substr(0, content.find(": "));
         if (type_of_info == type_of_info_file)
         {
-            num_of_files = std::stoi(content.substr(2 + content.find(": "))); //sets global variable
+            num_of_files_v1 = std::stoi(content.substr(2 + content.find(": "))); //sets global variable
             set_num_files = true;
         }
         if (type_of_info == type_of_info_block)
@@ -150,7 +150,7 @@ void calculate_migration_and_save_solution(GRBVar *blocks_migrated, GRBVar *bloc
         exit(1);
     }
     solution << "this is the list of the files we should move:" << std::endl;
-    for (int i = 0; i < num_of_files; i++)
+    for (int i = 0; i < num_of_files_v1; i++)
     {
         if (files[i].get(GRB_DoubleAttr_X) != 0.0) //file is moved
         {
@@ -230,31 +230,54 @@ void save_statistics(double total_time, double solver_time)
     if (!out)
     {
         std::cout << "Cannot open output file\n";
-    }
+    }   
     std::string is_there_time_limit = (time_limit_option) ? "yes" : "no";
-    out << input_file_name << ","
-        << "B,"
-        << depth_level << ","
-        << file_system_start << ","
-        << file_system_end << ","
-        << filter_factor << ","
-        << average_block_size << ","
-        << num_of_blocks << ","
-        << num_of_files << ","
-        << M_percentage << ","
-        << M_Kbytes << ","
-        << actual_M_percentage << ","
-        << actual_M_Kbytes << ","
-        << epsilon_percentage << ","
-        << epsilon_Kbytes << ","
-        << Kbytes_to_replicate << ","
-        << ((double)Kbytes_to_replicate) * 100.0 / ((double)total_block_size_Kbytes) << ","
-        << seed << ","
-        << number_of_threads << ","
-        << is_there_time_limit << ","
-        << solution_status << ","
-        << total_time << ","
-        << solver_time << std::endl;
+    
+    std::string v1_fileName = input_file_name.substr(input_file_name.find_last_of("/\\") + 1);
+    std::string tmp = v1_fileName.substr(0, v1_fileName.find_last_of("_"));
+    int v1First = std::stoi(tmp.substr(tmp.find_last_of("_") + 1, 3));
+    int v1last = std::stoi(v1_fileName.substr(v1_fileName.find_last_of("_") + 1, 3));
+    int v1NumFiles = v1last - v1First + 1;
+
+    std::string v2_fileName = input_file_name_v2.substr(input_file_name_v2.find_last_of("/\\") + 1);
+    tmp = v2_fileName.substr(0, v2_fileName.find_last_of("_"));
+    int v2First = std::stoi(tmp.substr(tmp.find_last_of("_") + 1, 3));
+    int v2last = std::stoi(v2_fileName.substr(v2_fileName.find_last_of("_") + 1, 3));
+    int v2NumFiles = v2last - v2First + 1;
+
+    out << v1First << ", "
+        << v1last << ", "
+        << v1NumFiles << ", "
+        << v2First << ", "
+        << v2last << ", "
+        << v2NumFiles << ", "
+        << "B, "
+        << depth_level << ", "
+        << filter_factor << ", "
+        << average_block_size << ", "
+        << num_of_blocks << ", "
+        << T_percentage << ", "
+        << T_Kbytes << ", "
+        << actual_M_percentage << ", "
+        << actual_M_Kbytes << ", "
+        << MM_percentage << ", "
+        << epsilon_Kbytes << ", "
+
+        << (((double)actual_R_percentage) / 100 ) * ((double)total_block_size_Kbytes) << ", "
+        << actual_R_percentage << ", "        
+        << actual_traffic_Percentage << ", "
+        << (((double)actual_traffic_Percentage) / 100 ) * ((double)total_block_size_Kbytes) << ", "
+        << actual_volume_change_percentage << ", "
+        << (((double)actual_volume_change_percentage) / 100 ) * ((double)total_block_size_Kbytes) << ", "
+
+        << seed << ", "
+        << number_of_threads << ", "
+        << is_there_time_limit << ", "
+        << solution_status << ", "
+        << total_time << ", "
+        << solver_time << ", "
+        << total_time - solver_time  << ", "
+        << std::endl;
     out.close();
 }
 
@@ -307,15 +330,15 @@ int main(int argc, char *argv[])
     if (argc != 15)                                               //very specific argument format for the program.
     {
         std::cout
-            << "arguments format is: {file name v1} {file name v2} {benchmarks output file name} {M} {epsilon} {where to write the optimization solution} {k filter factor} {model time limit in seconds} {seed} {threads} {avg block size} {depth} {file_system_start} {file_system_end}"
+            << "arguments format is: {file name v1} {file name v2} {benchmarks output file name} {T} {MM} {where to write the optimization solution} {k filter factor} {model time limit in seconds} {seed} {threads} {avg block size} {depth} {v1_file_system_start} {v2_file_system_end}"
             << std::endl;
         return 0;
     }
     input_file_name = std::string(argv[1]);
 	input_file_name_v2 = std::string(argv[2]);
     benchmarks_file_name = std::string(argv[3]);
-    M_percentage = std::stod(std::string(argv[4]));
-    epsilon_percentage = std::stod(std::string(argv[5]));
+    T_percentage = std::stod(std::string(argv[4]));
+    MM_percentage = std::stod(std::string(argv[5]));
     std::string write_solution = std::string(argv[6]);
     filter_factor = std::stod(std::string(argv[7]));
     model_time_limit = std::stod(std::string(argv[8]));
@@ -324,8 +347,8 @@ int main(int argc, char *argv[])
     number_of_threads = std::string(argv[10]);
     average_block_size = std::stod(std::string(argv[11]));
     depth_level = std::string(argv[12]);
-    file_system_start = std::string(argv[13]);
-    file_system_end = std::string(argv[14]);
+    v1_file_system_start = std::string(argv[13]);
+    v2_file_system_end = std::string(argv[14]);
     int num_of_metadata_lines = get_num_of_metadata_lines(input_file_name);
     std::ifstream f(input_file_name.c_str(), std::ifstream::in);
     if (!f.is_open())
@@ -345,7 +368,7 @@ int main(int argc, char *argv[])
     put_v2_in_hash_table(fv2, hashmap);
     fv2.close();
     
-    get_num_of_blocks_and_files(f, num_of_metadata_lines); //set global vars num_of_blocks and num_of_files
+    get_num_of_blocks_and_files(f, num_of_metadata_lines); //set global vars num_of_blocks and num_of_files_v1
     GRBEnv *env = 0;
     GRBVar *blocks_migrated = 0;
     GRBVar *blocks_replicated = 0;
@@ -374,7 +397,7 @@ int main(int argc, char *argv[])
         //set the model's variables.
         blocks_migrated = model.addVars(num_of_blocks, GRB_BINARY);
         blocks_replicated = model.addVars(num_of_blocks, GRB_BINARY);
-        files = model.addVars(num_of_files, GRB_BINARY);
+        files = model.addVars(num_of_files_v1, GRB_BINARY);
 
         model.update();
 
@@ -490,12 +513,12 @@ int main(int argc, char *argv[])
             total_block_size_Kbytes += block_size[i];
         }
         totalVolume = totalAdd - totalClean;
-        M_Kbytes = total_block_size_Kbytes * M_percentage / 100;                //assign the number of bytes to migrate
-        epsilon_Kbytes = total_block_size_Kbytes * epsilon_percentage / 100;    //assign the epsilon in bytes.
+        T_Kbytes = total_block_size_Kbytes * T_percentage / 100;                //assign the number of bytes to migrate
+        epsilon_Kbytes = total_block_size_Kbytes * MM_percentage / 100;    //assign the epsilon in bytes.
 
-        std::cout << epsilon_percentage << " percent is " << epsilon_Kbytes << std::endl;
+        std::cout << MM_percentage << " percent is " << epsilon_Kbytes << std::endl;
 
-        model.addConstr(totalTraffic <= M_Kbytes);                              // shouldn't pass more than M bytes
+        model.addConstr(totalTraffic <= T_Kbytes);                              // shouldn't pass more than M bytes
         model.addConstr(all_migrated_blocks >= epsilon_Kbytes);                 // shouldn't pass less than epsilon bytes
         model.setObjective(totalVolume, GRB_MINIMIZE);                          //minimize the impact we have on the total volume.
 
@@ -529,7 +552,9 @@ int main(int argc, char *argv[])
                   << std::flush;
         if (solution_status != "INFEASIBLE")
         {
-            Kbytes_to_replicate = model.get(GRB_DoubleAttr_ObjVal);
+            // Kbytes_to_replicate = model.get(GRB_DoubleAttr_ObjVal);
+            Kbytes_to_replicate = actual_R_Kbytes;
+
             //print the results.
             try
             {

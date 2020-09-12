@@ -388,9 +388,11 @@ int main(int argc, char *argv[])
             {
                 calculate_migration_and_save_solution(containers_migrated, files, write_solution);
             }
+            
             catch (...)
             {
                 std::cout << "Exception at print_results, probably can't read variables" << std::endl;
+                std::cout << std::current_exception();
                 solution_status = "TIME_LIMIT_AT_PRESOLVE";
             }
         }
