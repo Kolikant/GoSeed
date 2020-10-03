@@ -44,6 +44,12 @@ std::string solution_status = UNDEFINED_STATUS;      //Solver status at the end 
 int filter_factor = UNDEFINED_INT;                   // if filter heuristic was applied, k determines the number of following zeros.
 double total_block_size_Kbytes = 0;                  //the total physical size of the system in KB units.
 std::string input_file_name_v2 = UNDEFINED_STRING;   //Name of the input file of second volume, contains all the information needed.
+int variable_number = UNDEFINED_INT;
+int constraint_number = UNDEFINED_INT;
+int source_block_number = UNDEFINED_INT;
+int target_block_number = UNDEFINED_INT;
+int intersect_block_number = UNDEFINED_INT;
+
 /**
  * @brief counts the number of metadata lines in the input file.
  * metadata line is defined to have # symbol at the start of the line.
@@ -98,6 +104,7 @@ void get_num_of_blocks_and_files(std::ifstream &f, int num_of_metadata_lines)
         if (type_of_info == type_of_info_block)
         {
             num_of_blocks = std::stol(content.substr(2 + content.find(": "))); //sets global variable
+            source_block_number = num_of_blocks;
             set_num_blocks = true;
         }
     }
@@ -124,10 +131,12 @@ std::vector<std::string> split_string(std::string str, const std::string &delimi
 }
 
 void put_v2_in_hash_table(std::ifstream &fv2, std::unordered_map<std::string, int> &hashmap) {
+    target_block_number = 0;
     std::string content;
     while (std::getline(fv2, content)) {
         std::vector<std::string> splitLine = split_string(content, ",");
         if(splitLine[0] == "B") {
+            target_block_number++;
             hashmap[splitLine[2]] = std::stoi(splitLine[1]);
         }
     }
@@ -277,6 +286,13 @@ void save_statistics(double total_time, double solver_time)
         << total_time << ", "
         << solver_time << ", "
         << total_time - solver_time  << ", "
+
+        << variable_number << ", "
+        << constraint_number << ", "
+        << source_block_number << ", "
+        << target_block_number << ", "
+        << intersect_block_number << ", "
+
         << std::endl;
     out.close();
 }
@@ -407,6 +423,7 @@ int main(int argc, char *argv[])
         std::string content;
         int size_read;
         std::vector<std::string> splitted_content;
+        intersect_block_number = 0;
         while (std::getline(f, content))
         {
             splitted_content = split_string(content, ",");
@@ -438,6 +455,7 @@ int main(int argc, char *argv[])
                 if( hashmap.find(std::string(splitted_content[2])) == hashmap.end() ) {
                     blocks_is_in_intersect.push_back(false);
                 } else {
+                    intersect_block_number++;
                     blocks_is_in_intersect.push_back(true);
                 }
                 
@@ -528,9 +546,13 @@ int main(int argc, char *argv[])
         auto s1 = std::chrono::high_resolution_clock::now();
         // model.update();
         // model.write("debud.lp");
+        
         model.optimize();
-
+        
         double solver_time = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - s1).count();
+
+        variable_number = model.get(GRB_IntAttr_NumVars);
+        constraint_number = model.get(GRB_IntAttr_NumConstrs);
 
         block_size = new double[num_of_blocks];
         load_block_size_array_and_del_temp_file(block_size);
