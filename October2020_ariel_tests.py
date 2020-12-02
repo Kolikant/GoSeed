@@ -8,13 +8,24 @@ from timeit import default_timer as timer
 import time
 import socket
 
-if len(sys.argv)!=2:
-    print('useage: \"python3 june2020_ariel_tests.py <seed>\"')
+if len(sys.argv)!=3:
+    print('useage: \"python3 june2020_ariel_tests.py <seed> <mode: r-regular, hb-halfblocks, hc-halfconstraints>\"')
+    exit()
+
+mode = ""
+if(sys.argv[2] == "r"): 
+    mode = "GoSeedBlocksAriel"
+if(sys.argv[2] == "hb"): 
+    mode = "GoSeedBlocksAriel_HalfBlocks"
+if(sys.argv[2] == "hc"): 
+    mode = "GoSeedBlocksAriel_HalfConstraints"
+if(mode == ""):
+    print('bad mode. r-regular, hb-halfblocks, hc-halfconstraints')
     exit()
 
 seed=int(sys.argv[1])
-epsilon_list=[5]
-trafficLimit=[50]
+epsilon_list=[5, 10]
+trafficLimit=[40, 50, 60]
 # grouping_factor_list=[1, 2, 4, 8, 16]
 k_list=[8, 10, 12, 13]
 time_limit=21600#?
@@ -26,90 +37,43 @@ def run_UBC_cont_depth1():
     start=timer()
     avg_cont_size=4194304
     depth=1
-    # mishmashOfFives = [
-    #                     ('data/testData/5SystemLoad/B_heuristic_depth1_121_125.csv', 'data/testData/5SystemLoad/B_heuristic_depth1_216_220.csv'),
-    #                     ('data/testData/5SystemLoad/B_heuristic_depth1_121_125.csv', 'data/testData/5SystemLoad/B_heuristic_depth1_121_125.csv'),
-    #                     ('data/testData/5SystemLoad/B_heuristic_depth1_121_125.csv', 'data/testData/5SystemLoad/B_heuristic_depth1_436_440.csv'),
-    #                     ('data/testData/5SystemLoad/B_heuristic_depth1_216_220.csv', 'data/testData/5SystemLoad/B_heuristic_depth1_121_125.csv'),
-    #                     ('data/testData/5SystemLoad/B_heuristic_depth1_216_220.csv', 'data/testData/5SystemLoad/B_heuristic_depth1_216_220.csv'),
-    #                     ('data/testData/5SystemLoad/B_heuristic_depth1_216_220.csv', 'data/testData/5SystemLoad/B_heuristic_depth1_436_440.csv'),
-    #                     ('data/testData/5SystemLoad/B_heuristic_depth1_436_440.csv', 'data/testData/5SystemLoad/B_heuristic_depth1_121_125.csv'),
-    #                     ('data/testData/5SystemLoad/B_heuristic_depth1_436_440.csv', 'data/testData/5SystemLoad/B_heuristic_depth1_216_220.csv'),
-    #                     ('data/testData/5SystemLoad/B_heuristic_depth1_436_440.csv', 'data/testData/5SystemLoad/B_heuristic_depth1_436_440.csv'),
-    #                 ]
-
-    mishmashOfFilteredFives = [
-                    ('data/testData/filtered/B_dedup_k4_001_005.csv', 'data/testData/filtered/B_dedup_k4_001_005.csv'),
-                    ('data/testData/filtered/B_dedup_k4_001_005.csv', 'data/testData/filtered/B_dedup_k4_006_010.csv'),
-                    ('data/testData/filtered/B_dedup_k4_001_005.csv', 'data/testData/filtered/B_dedup_k4_011_015.csv'),
-                    ('data/testData/filtered/B_dedup_k4_006_010.csv', 'data/testData/filtered/B_dedup_k4_001_005.csv'),
-                    ('data/testData/filtered/B_dedup_k4_006_010.csv', 'data/testData/filtered/B_dedup_k4_006_010.csv'),
-                    ('data/testData/filtered/B_dedup_k4_006_010.csv', 'data/testData/filtered/B_dedup_k4_011_015.csv'),
-                    ('data/testData/filtered/B_dedup_k4_011_015.csv', 'data/testData/filtered/B_dedup_k4_001_005.csv'),
-                    ('data/testData/filtered/B_dedup_k4_011_015.csv', 'data/testData/filtered/B_dedup_k4_006_010.csv'),
-                    ('data/testData/filtered/B_dedup_k4_011_015.csv', 'data/testData/filtered/B_dedup_k4_011_015.csv'),
-                ]
-
-    mishmashOfFilteredFivesWithFifty = [
-                    ('data/toFilter/B_heuristic_depth1_k10_351_400.csv', 'data/toFilter/B_heuristic_depth1_k9_271_280.csv'),
-                    ('data/toFilter/B_heuristic_depth1_k10_351_400.csv', 'data/toFilter/B_heuristic_depth1_k9_271_280..csv'),
-                    ('data/toFilter/B_heuristic_depth1_k10_351_400.csv', 'data/toFilter/B_heuristic_depth1_k9_331_340.csv'),
-                    ('data/toFilter/B_heuristic_depth1_k10_351_400.csv', 'data/toFilter/B_heuristic_depth1_k9_061_070.csv'),
-                    ('data/toFilter/B_heuristic_depth1_k10_351_400.csv', 'data/toFilter/B_heuristic_depth1_k9_271_280.csv'),
-                    ('data/toFilter/B_heuristic_depth1_k10_351_400.csv', 'data/toFilter/B_heuristic_depth1_k9_271_280..csv'),
-                    ('data/toFilter/B_heuristic_depth1_k10_351_400.csv', 'data/toFilter/B_heuristic_depth1_k9_331_340.csv'),
-                    ('data/toFilter/B_heuristic_depth1_k10_351_400.csv', 'data/toFilter/B_heuristic_depth1_k9_061_070.csv'),
-                    ('data/toFilter/B_heuristic_depth1_k10_351_400.csv', 'data/toFilter/B_heuristic_depth1_k9_271_280.csv'),
-                    ('data/toFilter/B_heuristic_depth1_k10_351_400.csv', 'data/toFilter/B_heuristic_depth1_k9_271_280..csv'),
-                    ('data/toFilter/B_heuristic_depth1_k10_351_400.csv', 'data/toFilter/B_heuristic_depth1_k9_331_340.csv'),
-                    ('data/toFilter/B_heuristic_depth1_k10_351_400.csv', 'data/toFilter/B_heuristic_depth1_k9_061_070.csv')
-                ]
-
-    filteredTen = [
-                ('data/toFilter/B_heuristic_depth1_k10_351_360.csv', 'data/toFilter/B_heuristic_depth1_k10_271_280.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_331_340.csv', 'data/toFilter/B_heuristic_depth1_k10_351_360.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_061_070.csv', 'data/toFilter/B_heuristic_depth1_k10_331_340.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_271_280.csv', 'data/toFilter/B_heuristic_depth1_k10_061_070.csv'),
-            ]    
-
-    filtered25 = [
-                ('data/toFilter/B_heuristic_depth1_k10_051_075.csv', 'data/toFilter/B_heuristic_depth1_k10_151_175.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_151_175.csv', 'data/toFilter/B_heuristic_depth1_k10_051_075.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_051_075.csv', 'data/toFilter/B_heuristic_depth1_k10_351_400.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_051_075.csv', 'data/toFilter/B_heuristic_depth1_k10_351_400.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_151_175.csv', 'data/toFilter/B_heuristic_depth1_k10_351_400.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_151_175.csv', 'data/toFilter/B_heuristic_depth1_k10_351_400.csv')
-            ]        
-
-    filtered100 = [
-                ('data/toFilter/B_heuristic_depth1_k10_001_100.csv', 'data/toFilter/B_heuristic_depth1_k10_151_175.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_001_100.csv', 'data/toFilter/B_heuristic_depth1_k10_051_075.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_001_100.csv', 'data/toFilter/B_heuristic_depth1_k10_331_340.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_001_100.csv', 'data/toFilter/B_heuristic_depth1_k10_061_070.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_001_100.csv', 'data/toFilter/B_heuristic_depth1_k10_271_280.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_001_100.csv', 'data/toFilter/B_heuristic_depth1_k10_351_400.csv')
-            ]
 
     cocos1 = [
-                ('data/toFilter/B_heuristic_depth1_k9_001_100.csv', 'data/toFilter/B_heuristic_depth1_k9_151_175.csv'),
-                ('data/toFilter/B_heuristic_depth1_k9_001_100.csv', 'data/toFilter/B_heuristic_depth1_k9_051_075.csv'),
-                ('data/toFilter/B_heuristic_depth1_k9_001_100.csv', 'data/toFilter/B_heuristic_depth1_k9_331_340.csv'),
-                ('data/toFilter/B_heuristic_depth1_k9_001_100.csv', 'data/toFilter/B_heuristic_depth1_k9_061_070.csv'),
-                ('data/toFilter/B_heuristic_depth1_k9_001_100.csv', 'data/toFilter/B_heuristic_depth1_k9_271_280.csv'),
-                ('data/toFilter/B_heuristic_depth1_k9_001_100.csv', 'data/toFilter/B_heuristic_depth1_k9_351_400.csv'),
-                ('data/toFilter/B_heuristic_depth1_k9_001_100.csv', 'data/toFilter/B_heuristic_depth1_k9_001_200.csv'),
-                ('data/toFilter/B_heuristic_depth1_k9_001_100.csv', 'data/toFilter/B_heuristic_depth1_k9_001_500.csv')
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_151_175.csv'),
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_051_075.csv'),
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_331_340.csv'),
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_061_070.csv'),
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_271_280.csv'),
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_351_400.csv'),
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_076_125.csv')
     ]
 
+    cocos2 = [
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_151_175.csv'),
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_051_075.csv'),
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_331_340.csv'),
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_061_070.csv'),
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_271_280.csv'),
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_351_400.csv'),
+                ('data/toFilter/B_heuristic_depth1_k7_001_100.csv', 'data/toFilter/B_heuristic_depth1_k7_076_125.csv')
+    ]
+    cocos8 = [
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_151_175.csv'),
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_051_075.csv'),
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_331_340.csv'),
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_061_070.csv'),
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_271_280.csv'),
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_351_400.csv'),
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_001_200.csv'),
+    ]
     cocos9 = [
-                ('data/toFilter/B_heuristic_depth1_k8_001_100.csv', 'data/toFilter/B_heuristic_depth1_k8_151_175.csv'),
-                ('data/toFilter/B_heuristic_depth1_k8_001_100.csv', 'data/toFilter/B_heuristic_depth1_k8_051_075.csv'),
-                ('data/toFilter/B_heuristic_depth1_k8_001_100.csv', 'data/toFilter/B_heuristic_depth1_k8_331_340.csv'),
-                ('data/toFilter/B_heuristic_depth1_k8_001_100.csv', 'data/toFilter/B_heuristic_depth1_k8_061_070.csv'),
-                ('data/toFilter/B_heuristic_depth1_k8_001_100.csv', 'data/toFilter/B_heuristic_depth1_k8_271_280.csv'),
-                ('data/toFilter/B_heuristic_depth1_k8_001_100.csv', 'data/toFilter/B_heuristic_depth1_k8_351_400.csv'),
-                ('data/toFilter/B_heuristic_depth1_k8_001_100.csv', 'data/toFilter/B_heuristic_depth1_k8_001_200.csv'),
-                ('data/toFilter/B_heuristic_depth1_k8_001_100.csv', 'data/toFilter/B_heuristic_depth1_k8_001_500.csv')
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_151_175.csv'),
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_051_075.csv'),
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_331_340.csv'),
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_061_070.csv'),
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_271_280.csv'),
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_351_400.csv'),
+                ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_001_200.csv'),
     ]
 
     cocos10 = [
@@ -123,17 +87,7 @@ def run_UBC_cont_depth1():
                 ('data/toFilter/B_heuristic_depth1_k11_001_500.csv', 'data/toFilter/B_heuristic_depth1_k11_001_500.csv')
     ]
 
-    cocos2 = [
-                ('data/toFilter/B_heuristic_depth1_k10_001_200.csv', 'data/toFilter/B_heuristic_depth1_k10_151_175.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_001_200.csv', 'data/toFilter/B_heuristic_depth1_k10_051_075.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_001_200.csv', 'data/toFilter/B_heuristic_depth1_k10_331_340.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_001_200.csv', 'data/toFilter/B_heuristic_depth1_k10_061_070.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_001_200.csv', 'data/toFilter/B_heuristic_depth1_k10_271_280.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_001_200.csv', 'data/toFilter/B_heuristic_depth1_k10_351_400.csv'),
-                ('data/toFilter/B_heuristic_depth1_k10_001_200.csv', 'data/toFilter/B_heuristic_depth1_k10_001_500.csv')
-    ]
-
-    cocos8 = [
+    catalina2 = [
                 ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_151_175.csv'),
                 ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_051_075.csv'),
                 ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_331_340.csv'),
@@ -141,7 +95,7 @@ def run_UBC_cont_depth1():
                 ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_271_280.csv'),
                 ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_351_400.csv'),
                 ('data/toFilter/B_heuristic_depth1_k10_001_500.csv', 'data/toFilter/B_heuristic_depth1_k10_001_200.csv'),
-    ]
+        ]
 
     testCases = []
     machine = socket.gethostname()
@@ -155,6 +109,8 @@ def run_UBC_cont_depth1():
         testCases += cocos9
     if(machine == "cocos10"):
         testCases += cocos10
+    if(machine == "catalina2"):
+        testCases += catalina2
                 
     output_file = machine + 'october2020_depth1_cont.csv'
     handler_output_file=open(output_file, 'a+')
@@ -162,6 +118,8 @@ def run_UBC_cont_depth1():
     handler_output_file.write('v1First, v1Last, v1NumFiles, v2First, v2Last, v2NumFiles, Deduplication level, Depth, filter/grouping factor, avg block/container size, Number of blocks/containers, T fraction, T, M fraction actual, M actual, minimum migration fraction, minimum migration, Replication, Replication fraction, traffic fraction actual, traffic actual, volume change fraction, volume change, Seed, Threads, Time limit, Status, Total time, Solver time, Preprocess time, variable_number, constraint_number, source_block_number, target_block_number, intersect_block_number\n')
     handler_output_file.flush()
     handler_output_file.close
+    
+
     for epsilon in epsilon_list:
         for testCase in testCases:
             file_system_start = testCase[0].split("_")[4]
@@ -171,8 +129,8 @@ def run_UBC_cont_depth1():
             for m in trafficLimit:
                 if(epsilon >= m):
                     continue
-                write_sol='solutions/file_to_move_UBC_'+'GoSeedBlocksAriel_HalfBlocks{0}_{1}_{2}_{3}_{4}_{5}_{6}_{7}_{8}_{9}_{10}_{11}_{12}'.format(testCase[0].split("/")[-1], output_file, m, epsilon, 'write_solution', 8, time_limit, seed, threads, avg_cont_size, depth, file_system_start, file_system_end)+'.csv'                                                #./main_UBC_CONT {file name} {benchmarks output file name} {M} {epsilon} {yes/no (write solution to optimization_solution.txt)} {k filter factor} {model time limit in seconds} {seed} {threads} {avg block size} {depth} {file_system_start} {file_system_end}
-                command='./GoSeedBlocksAriel_HalfBlocks {0} {1} {2} {3} {4} {5} {6} {7} {8} {9} {10} {11} {12} {13}'.format(testCase[0],  testCase[1], output_file, m, epsilon, write_sol, k_filter, time_limit, seed, threads, avg_cont_size, depth, file_system_start, file_system_end)
+                write_sol='solutions/file_to_move_UBC_' + mode + '{0}_{1}_{2}_{3}_{4}_{5}_{6}_{7}_{8}_{9}_{10}_{11}_{12}'.format(testCase[0].split("/")[-1], output_file, m, epsilon, 'write_solution', 8, time_limit, seed, threads, avg_cont_size, depth, file_system_start, file_system_end)+'.csv'                                                #./main_UBC_CONT {file name} {benchmarks output file name} {M} {epsilon} {yes/no (write solution to optimization_solution.txt)} {k filter factor} {model time limit in seconds} {seed} {threads} {avg block size} {depth} {file_system_start} {file_system_end}
+                command='./' + mode + ' {0} {1} {2} {3} {4} {5} {6} {7} {8} {9} {10} {11} {12} {13}'.format(testCase[0],  testCase[1], output_file, m, epsilon, write_sol, k_filter, time_limit, seed, threads, avg_cont_size, depth, file_system_start, file_system_end)
                 p = subprocess.Popen([command], shell=True)
                 time_for_single_job = time.time()
                 p.wait()

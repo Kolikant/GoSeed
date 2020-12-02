@@ -38,7 +38,7 @@ double actual_volume_add_percentage = UNDEFINED_DOUBLE;         //The % of physi
 double actual_volume_change_percentage = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
 double total_traffic_and_clean_percentage = UNDEFINED_DOUBLE;         //The % of physical containers we decided to repicate.
 double actual_R_Kbytes = UNDEFINED_DOUBLE;           //Number of containers we decided to repicate.
-int num_of_files_v1 = UNDEFINED_INT;                    //Number of files in our input.
+int num_of_files = UNDEFINED_INT;                    //Number of files in our input.
 std::string seed = UNDEFINED_STRING;                 //Seed for the solver.
 std::string number_of_threads = UNDEFINED_STRING;    //Number of threads we restrict our solver to run with.
 std::string solution_status = UNDEFINED_STATUS;      //Solver status at the end of the optimization.
@@ -84,8 +84,15 @@ int get_num_of_metadata_lines(std::string &input_file_name)
  * @param f reference to the input stream
  * @param num_of_metadata_lines the number of metadata lines
  */
-void get_num_of_blocks_and_files(std::ifstream &f, int num_of_metadata_lines)
+std::pair<int, int> get_num_of_blocks_and_files(std::string f, int num_of_metadata_lines)
 {
+    std::ifstream f_stream(f.c_str(), std::ifstream::in);
+    if (!f_stream.is_open())
+    {
+        std::cout << "error opening volume file - get_num_of_blocks_and_files" << f << std::endl;
+        exit(1);
+    }
+
     const std::string type_of_info_file = "# Num files";
     const std::string type_of_info_block = "# Num Blocks";
     std::string content;
@@ -95,11 +102,11 @@ void get_num_of_blocks_and_files(std::ifstream &f, int num_of_metadata_lines)
 
     for (int i = 0; i < num_of_metadata_lines; i++)
     {
-        std::getline(f, content);
+        std::getline(f_stream, content);
         type_of_info = content.substr(0, content.find(": "));
         if (type_of_info == type_of_info_file)
         {
-            num_of_files_v1 = std::stoi(content.substr(2 + content.find(": "))); //sets global variable
+            num_of_files = std::stoi(content.substr(2 + content.find(": "))); //sets global variable
             set_num_files = true;
         }
         if (type_of_info == type_of_info_block)
@@ -114,6 +121,8 @@ void get_num_of_blocks_and_files(std::ifstream &f, int num_of_metadata_lines)
         std::cout << "cannot retrieve number of files or number of blocks from the input" << std::endl;
         exit(1);
     }
+    f_stream.close();
+    return std::make_pair(num_of_blocks, num_of_files);
 }
 
 
@@ -160,7 +169,7 @@ void calculate_migration_and_save_solution(GRBVar *blocks_migrated, GRBVar *bloc
         exit(1);
     }
     solution << "this is the list of the files we should move:" << std::endl;
-    for (int i = 0; i < num_of_files_v1; i++)
+    for (int i = 0; i < num_of_files; i++)
     {
         if (files[i].get(GRB_DoubleAttr_X) != 0.0) //file is moved
         {
@@ -341,6 +350,100 @@ void load_block_size_array_and_del_temp_file(double *block_size)
         std::cout << "Error deleting file" << std::endl;
 }
 
+std::vector<int> calcVolumeIntersect(std::string i_volume, std::string j_volume) 
+{
+    std::ifstream i_volume_stream(i_volume.c_str(), std::ifstream::in);
+    if (!i_volume_stream.is_open())
+    {
+        std::cout << "error opening volume file - calcVolumeIntersect" << i_volume << std::endl;
+        exit(1);
+    }
+    
+    std::ifstream j_volume_stream(j_volume.c_str(), std::ifstream::in);
+    if (!j_volume_stream.is_open())
+    {
+        std::cout << "error opening volume file - calcVolumeIntersect" << j_volume << std::endl;
+        i_volume_stream.close();
+        exit(1);
+    }
+    std::vector<int> blocks_i;
+    std::vector<int> blocks_j;
+    std::vector<int> intersect_i_j;
+    std::string content;
+    std::vector<std::string> splitted_content;
+
+
+    while (std::getline(i_volume_stream, content))
+    {
+        splitted_content = split_string(content, ",");
+        if (splitted_content[0] == "B")
+        {
+            blocks_i.push_back(std::stoi(splitted_content[1]));
+        }
+    }
+    i_volume_stream.close();
+
+    while (std::getline(j_volume_stream, content))
+    {
+        splitted_content = split_string(content, ",");
+        if (splitted_content[0] == "B")
+        {
+            blocks_j.push_back(std::stoi(splitted_content[1]));
+        }
+    }
+    j_volume_stream.close();
+
+    std::set_intersection(blocks_i.begin(), blocks_i.end(), blocks_j.begin(), blocks_j.end(), back_inserter(intersect_i_j));
+    return intersect_i_j;
+}
+
+std::vector<double> getBlockSizes(std::vector<std::string> source_volume_list, std::vector<std::pair<int, int>> num_of_blocks_and_files_sourceVolumes) 
+{
+    int max_block_sn = 0;
+	for (auto &item : num_of_blocks_and_files_sourceVolumes) {
+		max_block_sn += item.first;
+	}
+
+    std::vector<double> blockSizes(max_block_sn, 0);
+    for (auto &source_volume : source_volume_list) {
+        std::ifstream source_volume_stream(source_volume.c_str(), std::ifstream::in);
+        if (!source_volume_stream.is_open())
+        {
+            std::cout << "error opening volume file - getBlockSizes" << source_volume << std::endl;
+            exit(1);
+        }
+        
+        std::string content;
+        std::vector<std::string> splitted_content;
+
+        while (std::getline(source_volume_stream, content))
+        {
+            splitted_content = split_string(content, ",");
+            if (splitted_content[0] == "F")
+            {
+                int number_of_blocks_in_file_line = std::stoi(splitted_content[4]);
+                for (register int i = 0; i < 2 * number_of_blocks_in_file_line; i += 2) //read block_sn and block_size simultaneously and add constrains to the model.
+                {
+                    int block_sn = std::stoi(splitted_content[5 + i]);
+                    int size_read = std::stoi(splitted_content[6 + i]); //update block size histogram
+                    if (blockSizes[block_sn] == 0)
+                    {
+                        blockSizes[block_sn] = ((double)size_read) / 1024.0;
+                    }
+                }
+            }
+        }
+        source_volume_stream.close();
+	}
+
+    while (!blockSizes.empty() && blockSizes[blockSizes.size() - 1] == 0) {
+        blockSizes.pop_back();
+    }
+
+    return blockSizes;
+}
+
+
 int main(int argc, char *argv[])
 {
     const auto begin = std::chrono::high_resolution_clock::now(); //start the stopwatch for the total time.
@@ -377,84 +480,110 @@ int main(int argc, char *argv[])
     std::getline(volume_list_f, content);
 
     std::vector<std::string> source_volume_list;
-    std::vector<std::string> target_volumes_list;
+    std::vector<std::string> target_volume_list;
 
     while (std::getline(volume_list_f, content)) 
     {
-        std::cout << content << std::endl;
         std::string file_path = content.substr(0, content.find(", "));
         std::string volume_type = content.substr(content.find(", ") + 2);
 
-        std::cout << volume_type << std::endl;
-        std::cout << file_path << std::endl;
-
-        if(volume_type.compare("s")) {
+        if(volume_type.compare("s") || volume_type.compare("a")) {
             source_volume_list.push_back(file_path);
         }
-        if(volume_type.compare("t")) {
-            target_volumes_list.push_back(file_path);
-        }
-        if(volume_type.compare("a")) {
-            source_volume_list.push_back(file_path);
-            target_volumes_list.push_back(file_path);
+        if(volume_type.compare("t") || volume_type.compare("a")) {
+            target_volume_list.push_back(file_path);
         }
     }
 
-    for (auto & element : source_volume_list) {
-        std::cout << "source volume " << std::endl;
-        std::cout << element << std::endl;
+    std::vector<std::vector<std::vector<int>>> intersects;
+    for (int i = 0; i < source_volume_list.size(); i++) {        
+        std::vector<std::vector<int>> intersects_i;
+        intersects.push_back(intersects_i);
+        for (int j = 0; j < target_volume_list.size(); j++) {
+            std::vector<int> intersect_i_j = calcVolumeIntersect(source_volume_list[i], target_volume_list[j]);
+            intersects[i].push_back(intersect_i_j);
+        }
     }
 
-    for (auto & element : target_volumes_list) {
-        std::cout << "target volume " << std::endl;
-        std::cout << element << std::endl;
+    std::vector<std::pair<int, int>> num_of_blocks_and_files_sourceVolumes;
+    std::vector<std::pair<int, int>> num_of_blocks_and_files_targetVolumes;
+    for (int i = 0; i < source_volume_list.size(); i++) {        
+        int num_of_metadata_lines = get_num_of_metadata_lines(source_volume_list[i]);
+        std::pair<int, int> num_of_blocks_and_files_i = get_num_of_blocks_and_files(source_volume_list[i], num_of_metadata_lines);
+        num_of_blocks_and_files_sourceVolumes.push_back(num_of_blocks_and_files_i);
+    }
+    for (int j = 0; j < target_volume_list.size(); j++) {
+        int num_of_metadata_lines = get_num_of_metadata_lines(target_volume_list[j]);
+        std::pair<int, int> num_of_blocks_and_files_j = get_num_of_blocks_and_files(target_volume_list[j], num_of_metadata_lines);  
+        num_of_blocks_and_files_targetVolumes.push_back(num_of_blocks_and_files_j);
+    }
+
+    std::vector<double> block_sizes = getBlockSizes(source_volume_list, num_of_blocks_and_files_sourceVolumes);
+
+	for (int i = 0; i < block_sizes.size(); i++) {
+		std::cout << "block " << i << "is " << block_sizes[i] << "MB" << std::endl;  
+	}
+    // for (auto &item : num_of_blocks_and_files_targetVolumes) {
+	// 	std::cout << "blocks: " << item.first << "files: " << item.second << std::endl;  
+	// }
+
+    GRBEnv *env = 0;
+    GRBVar *blocks_copied = 0; //Cist
+    GRBVar *blocks_deleted = 0; //Dis
+    GRBVar *files = 0;  //Xist
+    GRBConstr *constrains = 0;
+    GRBConstr *constrains_hint = 0;
+    bool need_to_free_hint_constrains = false;
+    std::vector<GRBLinExpr> left_side;
+    std::vector<GRBLinExpr> left_side_hint; //files that does not have blocks should stay at source
+
+    std::vector<std::vector<GRBVar*>> C_s_t_i;
+    std::vector<GRBVar*> D_s_i;
+    std::vector<std::vector<GRBVar*>> X_s_t_i;
+
+
+    try
+    {
+        env = new GRBEnv(); //This may throw if there is no valid licence.
+        GRBModel model = GRBModel(*env);
+        model.set(GRB_StringAttr_ModelName, "GoSeed");
+        if (time_limit_option)
+        {
+            model.set(GRB_DoubleParam_TimeLimit, model_time_limit); //set time limit
+        }
+
+        model.set("Seed", seed.c_str());
+        model.set("Threads", number_of_threads.c_str());
+
+        for (int i = 0; i < source_volume_list.size(); i++) {      
+            std::vector<GRBVar*> C_t_i;
+            std::vector<GRBVar*> X_t_i;
+            C_s_t_i.push_back(C_t_i);
+            X_s_t_i.push_back(X_t_i);  
+            for (int j = 0; j < target_volume_list.size(); j++) {
+                blocks_copied = model.addVars(num_of_blocks_and_files_sourceVolumes[i].first, GRB_BINARY);
+                blocks_deleted = model.addVars(num_of_blocks_and_files_sourceVolumes[i].first, GRB_BINARY);
+                files = model.addVars(num_of_blocks_and_files_sourceVolumes[i].second, GRB_BINARY);
+                C_s_t_i[i].push_back(blocks_copied);
+                X_s_t_i[i].push_back(blocks_deleted);
+                D_s_i.push_back(blocks_deleted);
+            }
+        }
+        model.update();
+        
+        addConstraint_allIntersectsAreCopied(model, intersects, C_s_t_i)
+
+        model.write("debud.lp");
+
+    }
+    catch (...)
+    {
+        std::cout << "Exception during optimization" << std::endl;
     }
 
 
 
-	// std::ifstream fv2(input_file_name_v2.c_str(), std::ifstream::in);
-    // if (!fv2.is_open())
-    // {
-    //     std::cout << "error opening file v2." << std::endl;
-    //     exit(1);
-    // }
 
-    // std::unordered_map<std::string, int> hashmap;             // the hashmap where the second volumes blocks are stored
-    // put_v2_in_hash_table(fv2, hashmap);
-    // fv2.close();
-    
-    // get_num_of_blocks_and_files(f, num_of_metadata_lines); //set global vars num_of_blocks and num_of_files_v1
-    // GRBEnv *env = 0;
-    // GRBVar *blocks_migrated = 0;
-    // GRBVar *blocks_replicated = 0;
-    // GRBVar *files = 0;
-    // GRBConstr *constrains = 0;
-    // GRBConstr *constrains_hint = 0;
-    // bool need_to_free_hint_constrains = false;
-    // std::vector<bool> blocks_is_in_intersect;
-    // std::vector<GRBLinExpr> left_side;
-    // std::vector<GRBLinExpr> left_side_hint; //files that does not have blocks should stay at source.
-    // try
-    // {
-    //     env = new GRBEnv(); //This may throw if there is no valid licence.
-    //     GRBModel model = GRBModel(*env);
-    //     model.set(GRB_StringAttr_ModelName, "GoSeed");
-    //     if (time_limit_option)
-    //     {
-    //         model.set(GRB_DoubleParam_TimeLimit, model_time_limit); //set time limit
-    //     }
-    //     double *block_size = new double[num_of_blocks]; //init block size array will be used later on building model's equations and objective function.
-    //     std::fill_n(block_size, num_of_blocks, 0);
-
-    //     model.set("Seed", seed.c_str());
-    //     model.set("Threads", number_of_threads.c_str());
-
-    //     //set the model's variables.
-    //     blocks_migrated = model.addVars(num_of_blocks, GRB_BINARY);
-    //     blocks_replicated = model.addVars(num_of_blocks, GRB_BINARY);
-    //     files = model.addVars(num_of_files_v1, GRB_BINARY);
-
-    //     model.update();
 
     //     int file_sn;
     //     int block_sn;

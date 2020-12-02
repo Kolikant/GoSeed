@@ -13,8 +13,8 @@ if len(sys.argv)!=2:
     exit()
 
 seed=int(sys.argv[1])
-epsilon_list=[5]
-trafficLimit=[50]
+epsilon_list=[5, 10]
+trafficLimit=[40, 50, 60]
 # grouping_factor_list=[1, 2, 4, 8, 16]
 k_list=[8, 10, 12, 13]
 time_limit=21600#?
