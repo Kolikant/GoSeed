@@ -476,6 +476,34 @@ std::pair<int, int> getLastBlockAndFileSn(std::vector<std::string> source_volume
     return std::make_pair(lastBlockSn, lastFileSn);
 }
 
+std::vector<std::set<int>> getFileSnInVolumes(std::vector<std::string> source_volume_list)
+{
+    std::vector<std::set<int>> fileSnInVolume;
+    for (int source = 0; source < source_volume_list.size(); source++) {
+        std::ifstream source_volume_stream(source_volume_list[source].c_str(), std::ifstream::in);
+        if (!source_volume_stream.is_open())
+        {
+            std::cout << "error opening volume file - addConstraint_DontRemapNonExistantFilesOfRemapToSelf" << source_volume_list[source] << std::endl;
+            exit(1);
+        }
+
+        std::set<int> fileSnSet;
+        fileSnInVolume.push_back(fileSnSet);
+        std::string content;
+        std::vector<std::string> splitted_content;
+        while (std::getline(source_volume_stream, content))
+        {
+            splitted_content = split_string(content, ",");
+            if (splitted_content[0] == "F")
+            {
+                fileSnInVolume[source].insert(std::stoi(splitted_content[1]));
+            }
+        }
+        source_volume_stream.close();
+	}   
+    return fileSnInVolume;
+}
+
 void addConstraint_allIntersectsAreCopied(GRBModel model, std::vector<std::vector<std::vector<int>>> intersects_source_target_blocksn, std::vector<std::vector<GRBVar*>> C_i_s_t)
 {
     int constraintAdded = 0;
@@ -501,36 +529,12 @@ void addConstraint_RemapFilesToOnlyOneVolume(GRBModel model, std::vector<std::ve
 	}
 }
 
-void addConstraint_DontRemapNonExistantFilesOfRemapToSelf(GRBModel model, std::vector<std::vector<GRBVar*>> X_l_s_t, std::vector<std::string> source_volume_list, int numOfTargetVolumes)
+void addConstraint_DontRemapNonExistantFilesOfRemapToSelf(GRBModel model, std::vector<std::vector<GRBVar*>> X_l_s_t, std::vector<std::set<int>> fileSnInVolumes, int numOfTargetVolumes)
 {
-    std::vector<std::set<int>> fileSnInVolume;
-    for (int source = 0; source < source_volume_list.size(); source++) {
-        std::ifstream source_volume_stream(source_volume_list[source].c_str(), std::ifstream::in);
-        if (!source_volume_stream.is_open())
-        {
-            std::cout << "error opening volume file - addConstraint_DontRemapNonExistantFilesOfRemapToSelf" << source_volume_list[source] << std::endl;
-            exit(1);
-        }
-
-        std::set<int> fileSnSet;
-        fileSnInVolume.push_back(fileSnSet);
-        std::string content;
-        std::vector<std::string> splitted_content;
-        while (std::getline(source_volume_stream, content))
-        {
-            splitted_content = split_string(content, ",");
-            if (splitted_content[0] == "F")
-            {
-                fileSnInVolume[source].insert(std::stoi(splitted_content[1]));
-            }
-        }
-        source_volume_stream.close();
-	}   
-
     for (int l = 0; l < X_l_s_t.size(); l++) {
         for (int source = 0; source < X_l_s_t[l].size(); source ++) {
             model.addConstr(X_l_s_t[l][source][source], GRB_EQUAL, 0 );
-            if(fileSnInVolume[source].count(l) == 1){
+            if(fileSnInVolumes[source].count(l) == 1){
                 continue;
             } else {
                 for (int target = 0; target < numOfTargetVolumes; target++) {
@@ -539,6 +543,40 @@ void addConstraint_DontRemapNonExistantFilesOfRemapToSelf(GRBModel model, std::v
             }
         }
     }
+}
+
+void addConstraint_BlockIsDeletedOnlyIfNoLocalFileUsingItRemains(GRBModel model, std::vector<std::vector<GRBVar*>> X_l_s_t, std::vector<GRBVar*> D_i_s, std::vector<std::string> source_volume_list, int numOfTargetVolumes)
+{
+    for (int source = 0; source < source_volume_list.size(); source++) {
+        std::ifstream source_volume_stream(source_volume_list[source].c_str(), std::ifstream::in);
+        if (!source_volume_stream.is_open())
+        {
+            std::cout << "error opening volume file - addConstraint_BlockIsDeletedOnlyIfNoLocalFileUsingItRemains" << source_volume_list[source] << std::endl;
+            exit(1);
+        }
+
+        std::string content;
+        std::vector<std::string> splitted_content;
+        while (std::getline(source_volume_stream, content))
+        {
+            splitted_content = split_string(content, ",");
+            if (splitted_content[0] == "F")
+            {
+                int fileSn = std::stoi(splitted_content[1]);
+                int number_of_blocks_in_file_line = std::stoi(splitted_content[4]);
+                for (register int i = 0; i < 2 * number_of_blocks_in_file_line; i += 2) //read block_sn and block_size simultaneously and add constrains to the model.
+                {
+                    int block_sn = std::stoi(splitted_content[5 + i]);
+                    GRBLinExpr Sum_X_l_s_t = 0.0;
+                    for (int target = 0; target < numOfTargetVolumes; target++) {
+                        Sum_X_l_s_t += X_l_s_t[fileSn][source][target];
+                    }
+                    model.addConstr(D_i_s[block_sn][source] <= Sum_X_l_s_t);
+                }
+            }
+        }
+        source_volume_stream.close();
+	}   
 }
 
 int main(int argc, char *argv[])
@@ -618,6 +656,7 @@ int main(int argc, char *argv[])
     std::vector<double> block_sizes = getBlockSizes(source_volume_list, num_of_blocks_and_files_sourceVolumes);
     std::pair<int, int> lastSourceSn_block_file = getLastBlockAndFileSn(source_volume_list);
     
+    std::vector<std::set<int>> fileSnInVolume = getFileSnInVolumes(source_volume_list);
     // for (int i = 0; i < block_sizes.size(); i++) {
 	// 	std::cout << "block " << i << "is " << block_sizes[i] << "MB" << std::endl;  
 	// }
@@ -681,7 +720,9 @@ int main(int argc, char *argv[])
         model.update();
         addConstraint_RemapFilesToOnlyOneVolume(model, X_l_s_t, num_of_blocks_and_files_sourceVolumes, target_volume_list.size());
         model.update();
-        addConstraint_DontRemapNonExistantFilesOfRemapToSelf(model, X_l_s_t, source_volume_list, target_volume_list.size());
+        addConstraint_DontRemapNonExistantFilesOfRemapToSelf(model, X_l_s_t, fileSnInVolume, target_volume_list.size());
+        model.update();
+        addConstraint_BlockIsDeletedOnlyIfNoLocalFileUsingItRemains(model, X_l_s_t, D_i_s, source_volume_list, target_volume_list.size());
         model.update();
 
         model.write("debud.lp");
