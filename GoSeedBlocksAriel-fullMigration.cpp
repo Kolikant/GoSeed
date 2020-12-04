@@ -6,6 +6,7 @@
 #include "gurobi_c++.h"
 #include <fstream>
 #include <chrono>
+#include <set>
 #include <boost/algorithm/string.hpp>
 #include <unordered_map> 
 
@@ -443,6 +444,102 @@ std::vector<double> getBlockSizes(std::vector<std::string> source_volume_list, s
     return blockSizes;
 }
 
+std::pair<int, int> getLastBlockAndFileSn(std::vector<std::string> source_volume_list) 
+{
+    int lastBlockSn = 0;
+    int lastFileSn = 0;
+    for (auto &source_volume : source_volume_list) {
+        std::ifstream source_volume_stream(source_volume.c_str(), std::ifstream::in);
+        if (!source_volume_stream.is_open())
+        {
+            std::cout << "error opening volume file - getLastBlockSn" << source_volume << std::endl;
+            exit(1);
+        }
+        
+        std::string content;
+        std::vector<std::string> splitted_content;
+
+        while (std::getline(source_volume_stream, content))
+        {
+            splitted_content = split_string(content, ",");
+            if (splitted_content[0] == "F")
+            {
+                lastFileSn = std::max(lastFileSn, std::stoi(splitted_content[1]));
+            }
+            if (splitted_content[0] == "B")
+            {
+                lastBlockSn = std::max(lastBlockSn, std::stoi(splitted_content[1]));
+            }
+        }
+        source_volume_stream.close();
+	}   
+    return std::make_pair(lastBlockSn, lastFileSn);
+}
+
+void addConstraint_allIntersectsAreCopied(GRBModel model, std::vector<std::vector<std::vector<int>>> intersects_source_target_blocksn, std::vector<std::vector<GRBVar*>> C_i_s_t)
+{
+    int constraintAdded = 0;
+    for (int source = 0; source < intersects_source_target_blocksn.size(); source++) {
+		for (int target = 0; target < intersects_source_target_blocksn[source].size(); target++) {
+            for (int i = 0; i < intersects_source_target_blocksn[source][target].size(); i++) {
+                model.addConstr(C_i_s_t[intersects_source_target_blocksn[source][target][i]][source][target], GRB_EQUAL, 1);
+            }      
+        }
+	}
+}
+
+void addConstraint_RemapFilesToOnlyOneVolume(GRBModel model, std::vector<std::vector<GRBVar*>> X_l_s_t, std::vector<std::pair<int, int>> num_of_blocks_and_files_sourceVolumes, int numOfTargetVolumes)
+{
+    for (int l = 0; l < X_l_s_t.size(); l++) {
+        for (int source = 0; source < X_l_s_t[l].size(); source ++) {
+            GRBLinExpr Sum_X_l_s_t = 0.0;
+            for (int target = 0; target < numOfTargetVolumes; target++) {
+                Sum_X_l_s_t += X_l_s_t[l][source][target];
+            }
+            model.addConstr(Sum_X_l_s_t <= 1);  
+        }
+	}
+}
+
+void addConstraint_DontRemapNonExistantFilesOfRemapToSelf(GRBModel model, std::vector<std::vector<GRBVar*>> X_l_s_t, std::vector<std::string> source_volume_list, int numOfTargetVolumes)
+{
+    std::vector<std::set<int>> fileSnInVolume;
+    for (int source = 0; source < source_volume_list.size(); source++) {
+        std::ifstream source_volume_stream(source_volume_list[source].c_str(), std::ifstream::in);
+        if (!source_volume_stream.is_open())
+        {
+            std::cout << "error opening volume file - addConstraint_DontRemapNonExistantFilesOfRemapToSelf" << source_volume_list[source] << std::endl;
+            exit(1);
+        }
+
+        std::set<int> fileSnSet;
+        fileSnInVolume.push_back(fileSnSet);
+        std::string content;
+        std::vector<std::string> splitted_content;
+        while (std::getline(source_volume_stream, content))
+        {
+            splitted_content = split_string(content, ",");
+            if (splitted_content[0] == "F")
+            {
+                fileSnInVolume[source].insert(std::stoi(splitted_content[1]));
+            }
+        }
+        source_volume_stream.close();
+	}   
+
+    for (int l = 0; l < X_l_s_t.size(); l++) {
+        for (int source = 0; source < X_l_s_t[l].size(); source ++) {
+            model.addConstr(X_l_s_t[l][source][source], GRB_EQUAL, 0 );
+            if(fileSnInVolume[source].count(l) == 1){
+                continue;
+            } else {
+                for (int target = 0; target < numOfTargetVolumes; target++) {
+                    model.addConstr(X_l_s_t[l][source][target], GRB_EQUAL, 0 );
+                }   
+            }
+        }
+    }
+}
 
 int main(int argc, char *argv[])
 {
@@ -495,13 +592,13 @@ int main(int argc, char *argv[])
         }
     }
 
-    std::vector<std::vector<std::vector<int>>> intersects;
+    std::vector<std::vector<std::vector<int>>> intersects_source_target_blocksn;
     for (int i = 0; i < source_volume_list.size(); i++) {        
         std::vector<std::vector<int>> intersects_i;
-        intersects.push_back(intersects_i);
+        intersects_source_target_blocksn.push_back(intersects_i);
         for (int j = 0; j < target_volume_list.size(); j++) {
             std::vector<int> intersect_i_j = calcVolumeIntersect(source_volume_list[i], target_volume_list[j]);
-            intersects[i].push_back(intersect_i_j);
+            intersects_source_target_blocksn[i].push_back(intersect_i_j);
         }
     }
 
@@ -519,10 +616,11 @@ int main(int argc, char *argv[])
     }
 
     std::vector<double> block_sizes = getBlockSizes(source_volume_list, num_of_blocks_and_files_sourceVolumes);
-
-	for (int i = 0; i < block_sizes.size(); i++) {
-		std::cout << "block " << i << "is " << block_sizes[i] << "MB" << std::endl;  
-	}
+    std::pair<int, int> lastSourceSn_block_file = getLastBlockAndFileSn(source_volume_list);
+    
+    // for (int i = 0; i < block_sizes.size(); i++) {
+	// 	std::cout << "block " << i << "is " << block_sizes[i] << "MB" << std::endl;  
+	// }
     // for (auto &item : num_of_blocks_and_files_targetVolumes) {
 	// 	std::cout << "blocks: " << item.first << "files: " << item.second << std::endl;  
 	// }
@@ -537,10 +635,9 @@ int main(int argc, char *argv[])
     std::vector<GRBLinExpr> left_side;
     std::vector<GRBLinExpr> left_side_hint; //files that does not have blocks should stay at source
 
-    std::vector<std::vector<GRBVar*>> C_s_t_i;
-    std::vector<GRBVar*> D_s_i;
-    std::vector<std::vector<GRBVar*>> X_s_t_i;
-
+    std::vector<std::vector<GRBVar*>> C_i_s_t;
+    std::vector<GRBVar*> D_i_s;
+    std::vector<std::vector<GRBVar*>> X_l_s_t;
 
     try
     {
@@ -555,29 +652,45 @@ int main(int argc, char *argv[])
         model.set("Seed", seed.c_str());
         model.set("Threads", number_of_threads.c_str());
 
-        for (int i = 0; i < source_volume_list.size(); i++) {      
-            std::vector<GRBVar*> C_t_i;
-            std::vector<GRBVar*> X_t_i;
-            C_s_t_i.push_back(C_t_i);
-            X_s_t_i.push_back(X_t_i);  
-            for (int j = 0; j < target_volume_list.size(); j++) {
-                blocks_copied = model.addVars(num_of_blocks_and_files_sourceVolumes[i].first, GRB_BINARY);
-                blocks_deleted = model.addVars(num_of_blocks_and_files_sourceVolumes[i].first, GRB_BINARY);
-                files = model.addVars(num_of_blocks_and_files_sourceVolumes[i].second, GRB_BINARY);
-                C_s_t_i[i].push_back(blocks_copied);
-                X_s_t_i[i].push_back(blocks_deleted);
-                D_s_i.push_back(blocks_deleted);
+        for (int i = 0; i <= lastSourceSn_block_file.first; i++) {
+            std::vector<GRBVar*> C_s_t;
+            C_i_s_t.push_back(C_s_t);
+            for (int source = 0; source < source_volume_list.size(); source++) {
+                blocks_copied = model.addVars(target_volume_list.size(), GRB_BINARY);
+                blocks_deleted = model.addVars(target_volume_list.size(), GRB_BINARY);
+                files = model.addVars(target_volume_list.size(), GRB_BINARY);
+                
+                C_i_s_t[i].push_back(blocks_copied);
+                D_i_s.push_back(blocks_deleted);
+            }
+        }
+        model.update();
+
+        for (int l = 0; l <= lastSourceSn_block_file.second; l++) {
+            std::vector<GRBVar*> X_s_t;
+            X_l_s_t.push_back(X_s_t);  
+            for (int source = 0; source < source_volume_list.size(); source++) {
+                files = model.addVars(target_volume_list.size(), GRB_BINARY);
+                
+                X_l_s_t[l].push_back(files);
             }
         }
         model.update();
         
-        addConstraint_allIntersectsAreCopied(model, intersects, C_s_t_i)
+        addConstraint_allIntersectsAreCopied(model, intersects_source_target_blocksn, C_i_s_t);
+        model.update();
+        addConstraint_RemapFilesToOnlyOneVolume(model, X_l_s_t, num_of_blocks_and_files_sourceVolumes, target_volume_list.size());
+        model.update();
+        addConstraint_DontRemapNonExistantFilesOfRemapToSelf(model, X_l_s_t, source_volume_list, target_volume_list.size());
+        model.update();
 
         model.write("debud.lp");
+        std::cout << "AAAAAAAAAAAAAAAAAAAA";
 
-    }
-    catch (...)
-    {
+    } catch(GRBException e) {
+        std::cout << "Error code = " << e.getErrorCode() << std::endl;
+        std::cout << e.getMessage() << std::endl;
+    } catch(...) {
         std::cout << "Exception during optimization" << std::endl;
     }
 
@@ -597,7 +710,7 @@ int main(int argc, char *argv[])
     //         splitted_content = split_string(content, ",");
     //         if (splitted_content[0] == "F")
     //         {
-    //             file_sn = std::stoi(splitted_content[1]);
+    //             file_sn = std::stoi(std::stoi(splitted_content[1]);)
     //             //skip file_id its useless
     //             //skip dir_sn its useless
     //             number_of_blocks_in_file_line = std::stoi(splitted_content[4]);
@@ -628,7 +741,7 @@ int main(int argc, char *argv[])
     //             }
                 
     //             GRBLinExpr no_orphans = 0.0;
-    //             block_sn = std::stoi(splitted_content[1]);
+    //             block_sn = std::stoi(std::stoi(splitted_content[1]);)
     //             //skip block_id its useless
     //             number_of_blocks_in_file_line = std::stoi(splitted_content[3]); //number of files in line reusing number_of_blocks_in_file_line for convenient
     //             no_orphans = no_orphans + blocks_replicated[block_sn] - number_of_blocks_in_file_line;
