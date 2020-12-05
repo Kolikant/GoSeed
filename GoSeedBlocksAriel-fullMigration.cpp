@@ -612,6 +612,41 @@ void addConstraint_BlockIsDeletedOnlyIfNoNewFileTransferredIsUsingIt(GRBModel &m
 	}       
 }
 
+void addConstraint_RemmapedFileHasAllItsBlocks(GRBModel &model, std::vector<std::vector<GRBVar*>> &X_l_s_t, std::vector<std::vector<GRBVar*>> &C_i_s_t, std::vector<std::string> &source_volume_list, int numOfTargetVolumes)
+{
+    for (int source = 0; source < source_volume_list.size(); source++) {
+        std::ifstream source_volume_stream(source_volume_list[source].c_str(), std::ifstream::in);
+        if (!source_volume_stream.is_open())
+        {
+            std::cout << "error opening volume file - addConstraint_RemmapedFileHasAllItsBlocks" << source_volume_list[source] << std::endl;
+            exit(1);
+        }
+
+        std::string content;
+        std::vector<std::string> splitted_content;
+        while (std::getline(source_volume_stream, content))
+        {
+            splitted_content = split_string(content, ",");
+            if (splitted_content[0] == "F")
+            {
+                int fileSn = std::stoi(splitted_content[1]);
+                int number_of_blocks_in_file_line = std::stoi(splitted_content[4]);
+                for (register int i = 0; i < 2 * number_of_blocks_in_file_line; i += 2) //read block_sn and block_size simultaneously and add constrains to the model.
+                {
+                    int block_sn = std::stoi(splitted_content[5 + i]);
+                    for (int target = 0; target < numOfTargetVolumes; target++) {
+                        GRBLinExpr Sum_C_i_v_t = 0.0;
+                        for (int arbitraryVolume = 0; arbitraryVolume < source_volume_list.size(); arbitraryVolume++) {
+                            Sum_C_i_v_t += C_i_s_t[block_sn][arbitraryVolume][target];
+                        }
+                        model.addConstr(X_l_s_t[fileSn][source][target] <= Sum_C_i_v_t);
+                    }
+                }
+            }
+        }
+        source_volume_stream.close();
+	}       
+}
 
 int main(int argc, char *argv[])
 {
@@ -764,9 +799,9 @@ int main(int argc, char *argv[])
         addConstraint_BlockIsDeletedOnlyIfNoNewFileTransferredIsUsingIt(model, X_l_s_t, D_i_s, source_volume_list, target_volume_list.size());
 		std::cout << 6 << std::endl;  
         model.update();
-        // addConstraint_RemmapedFileHasAllItsBlocks(model, X_l_s_t, C_i_s_t, source_volume_list, target_volume_list.size());
-		// std::cout << 7 << std::endl;  
-        // model.update();
+        addConstraint_RemmapedFileHasAllItsBlocks(model, X_l_s_t, C_i_s_t, source_volume_list, target_volume_list.size());
+		std::cout << 7 << std::endl;  
+        model.update();
 
         model.write("debud.lp");
         std::cout << "AAAAAAAAAAAAAAAAAAAA";
