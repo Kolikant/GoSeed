@@ -28,7 +28,7 @@ def run_UBC_cont_depth1():
     depth=1
 
     catalina2 = [
-                ('data/volumeList/light', 'data/volumeList/light'),
+                ('data/volumeList/basic', 'data/volumeList/basic'),
         ]
 
     testCases = []

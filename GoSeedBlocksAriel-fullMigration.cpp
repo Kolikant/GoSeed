@@ -534,12 +534,12 @@ void addConstraint_DontRemapNonExistantFilesOfRemapToSelf(GRBModel &model, std::
 {
     for (int l = 0; l < X_l_s_t.size(); l++) {
         for (int source = 0; source < X_l_s_t[l].size(); source ++) {
-            model.addConstr(X_l_s_t[l][source][source], GRB_EQUAL, 0 );
-            if(fileSnInVolumes[source].count(l) == 1){
+            model.addConstr(X_l_s_t[l][source][source], GRB_EQUAL, 0);
+            if(fileSnInVolumes[source].count(l) == 1) {
                 continue;
             } else {
                 for (int target = 0; target < numOfTargetVolumes; target++) {
-                    model.addConstr(X_l_s_t[l][source][target], GRB_EQUAL, 0 );
+                    model.addConstr(X_l_s_t[l][source][target], GRB_EQUAL, 0);
                 }   
             }
         }
@@ -647,6 +647,73 @@ void addConstraint_RemmapedFileHasAllItsBlocks(GRBModel &model, std::vector<std:
         source_volume_stream.close();
 	}       
 }
+
+void addConstraint_TrafficIsLessThanMaximumTraffic(GRBModel &model, std::vector<std::vector<GRBVar*>> &C_i_s_t, std::vector<std::vector<std::vector<int>>> &intersects_source_target_blocksn, std::vector<double> &block_sizes, double maximumTrafficPercentage) 
+{
+    double total_block_size_Kbytes = 0;
+    for (auto &blockSize : block_sizes) {
+		total_block_size_Kbytes += blockSize;
+	}
+    double maxTrafficInKbytes = total_block_size_Kbytes * maximumTrafficPercentage / 100;                //assign the number of bytes to migrate
+
+    GRBLinExpr Sum_C_i_s_t = 0.0;
+    for(int i = 0; i < block_sizes.size(); i++) {
+        for (int source = 0; source < intersects_source_target_blocksn.size(); source++) {
+            for (int target = 0; target < intersects_source_target_blocksn[0].size(); target++) {
+                std::vector<int> relevantIntersect = intersects_source_target_blocksn[source][target];
+                if(source == target) {
+                    continue;
+                }
+                if(std::find(relevantIntersect.begin(), relevantIntersect.end(), i) == relevantIntersect.end()) {
+                    Sum_C_i_s_t += C_i_s_t[i][source][target] * block_sizes[i];
+                } else {
+                    continue;
+                }
+            }
+        }
+    }
+
+    model.addConstr(Sum_C_i_s_t <= maxTrafficInKbytes);
+}
+
+void addConstraint_MigrationIsAboveMinimumMigration(GRBModel &model, std::vector<GRBVar*> &D_i_s, std::vector<std::string> &source_volume_list, std::vector<double> &block_sizes, double MM_percentage)
+{
+    double total_block_size_Kbytes = 0;
+    for (auto &blockSize : block_sizes) {
+		total_block_size_Kbytes += blockSize;
+	}
+    double MMInKbytes = total_block_size_Kbytes * MM_percentage / 100;                //assign the number of bytes to migrate
+
+    GRBLinExpr Sum_D_i_s = 0.0;
+
+    for (int i = 0; i < block_sizes.size(); i++) {        
+        for (int source = 0; source < source_volume_list.size(); source++) {       
+		    Sum_D_i_s += D_i_s[i][source] * block_sizes[i];
+	    }
+    }
+    model.addConstr(Sum_D_i_s >= MMInKbytes);
+}
+
+void setObjective(GRBModel &model, std::vector<std::vector<GRBVar*>> &C_i_s_t, std::vector<GRBVar*> &D_i_s, std::vector<double> &block_sizes, int numOfTargetVolumes)
+{
+    GRBLinExpr inner_sum = 0.0;
+    GRBLinExpr middle_sum = 0.0;
+    GRBLinExpr outer_sum = 0.0;
+    for (int i = 0; i < block_sizes.size(); i++) {        
+        middle_sum = 0.0;
+        for (int source = 0; source < C_i_s_t[i].size(); source++) {       
+            inner_sum = 0.0;
+            for (int target = 0; target < numOfTargetVolumes; target++) {       
+                inner_sum += C_i_s_t[i][source][target];
+            } 
+            middle_sum -= D_i_s[i][source];
+            middle_sum += inner_sum;
+        }
+        outer_sum += block_sizes[i] * middle_sum;
+    }
+    model.setObjective(outer_sum, GRB_MINIMIZE);
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -802,9 +869,15 @@ int main(int argc, char *argv[])
         addConstraint_RemmapedFileHasAllItsBlocks(model, X_l_s_t, C_i_s_t, source_volume_list, target_volume_list.size());
 		std::cout << 7 << std::endl;  
         model.update();
+        addConstraint_TrafficIsLessThanMaximumTraffic(model, C_i_s_t, intersects_source_target_blocksn, block_sizes, T_percentage);
+        std::cout << 8 << std::endl;  
+        addConstraint_MigrationIsAboveMinimumMigration(model, D_i_s, source_volume_list, block_sizes, MM_percentage);
+        model.update();
+        std::cout << 9 << std::endl;   
 
+        setObjective(model, C_i_s_t, D_i_s, block_sizes, target_volume_list.size());
+        model.update();
         model.write("debud.lp");
-        std::cout << "AAAAAAAAAAAAAAAAAAAA";
 
     } catch(GRBException e) {
         std::cout << "Error code = " << e.getErrorCode() << std::endl;
@@ -813,131 +886,6 @@ int main(int argc, char *argv[])
         std::cout << "Exception during optimization" << std::endl;
     }
 
-
-
-
-
-    //     int file_sn;
-    //     int block_sn;
-    //     int number_of_blocks_in_file_line;
-    //     std::string content;
-    //     int size_read;
-    //     std::vector<std::string> splitted_content;
-    //     intersect_block_number = 0;
-    //     while (std::getline(f, content))
-    //     {
-    //         splitted_content = split_string(content, ",");
-    //         if (splitted_content[0] == "F")
-    //         {
-    //             file_sn = std::stoi(std::stoi(splitted_content[1]);)
-    //             //skip file_id its useless
-    //             //skip dir_sn its useless
-    //             number_of_blocks_in_file_line = std::stoi(splitted_content[4]);
-    //             for (register int i = 0; i < 2 * number_of_blocks_in_file_line; i += 2) //read block_sn and block_size simultaneously and add constrains to the model.
-    //             {
-    //                 block_sn = std::stoi(splitted_content[5 + i]);
-    //                 size_read = std::stoi(splitted_content[6 + i]); //update block size histogram
-    //                 if (block_size[block_sn] == 0)
-    //                 {
-    //                     block_size[block_sn] = ((double)size_read) / 1024.0;
-    //                 }
-    //                 left_side.push_back(blocks_migrated[block_sn] - files[file_sn]);
-    //                 left_side.push_back(files[file_sn] - blocks_migrated[block_sn] - blocks_replicated[block_sn]);
-    //             }
-    //             if (number_of_blocks_in_file_line == 0)
-    //             {
-    //                 left_side_hint.push_back(files[file_sn]);
-    //             }
-    //         }
-    //         else if (splitted_content[0] == "B")
-    //         {
-    //             //disjoinCheck
-    //             if( hashmap.find(std::string(splitted_content[2])) == hashmap.end() ) {
-    //                 blocks_is_in_intersect.push_back(false);
-    //             } else {
-    //                 intersect_block_number++;
-    //                 blocks_is_in_intersect.push_back(true);
-    //             }
-                
-    //             GRBLinExpr no_orphans = 0.0;
-    //             block_sn = std::stoi(std::stoi(splitted_content[1]);)
-    //             //skip block_id its useless
-    //             number_of_blocks_in_file_line = std::stoi(splitted_content[3]); //number of files in line reusing number_of_blocks_in_file_line for convenient
-    //             no_orphans = no_orphans + blocks_replicated[block_sn] - number_of_blocks_in_file_line;
-    //             for (int i = 0; i < number_of_blocks_in_file_line; i++) //read block_sn and block_size simultaneously and add constrains to the model.
-    //             {
-    //                 file_sn = std::stoi(splitted_content[4 + i]);
-    //                 no_orphans += files[file_sn];
-    //             }
-    //             left_side.push_back(no_orphans);
-    //         }
-    //         else
-    //         {
-    //             break; // skip dirs and roots information
-    //         }
-    //     }
-    //     f.close();
-    //     std::cout << "done reading the file" << std::endl;
-
-    //     //add the constrains to the model
-    //     std::vector<double> right_side;
-    //     std::vector<double> right_side_hint;
-    //     std::vector<std::string> names;
-    //     std::vector<std::string> names_hint;
-    //     std::vector<char> senses;
-    //     std::vector<char> senses_hint;
-    //     names.assign(left_side.size(), "");
-    //     names_hint.assign(left_side_hint.size(), "");
-    //     right_side.assign(left_side.size(), 0.0);
-    //     right_side_hint.assign(left_side_hint.size(), 0.0);
-    //     senses.assign(left_side.size(), GRB_LESS_EQUAL);
-    //     senses_hint.assign(left_side_hint.size(), GRB_EQUAL);
-
-    //     constrains = model.addConstrs(&left_side[0], &senses[0], &right_side[0], &names[0], (int)left_side.size());
-
-    //     if ((int)left_side_hint.size() != 0) //found at least one empty file.
-    //     {
-    //         constrains_hint = model.addConstrs(&left_side_hint[0], &senses_hint[0], &right_side_hint[0], &names_hint[0], (int)left_side_hint.size());
-    //         need_to_free_hint_constrains = true;
-    //     }
-
-    //     left_side.clear();
-    //     left_side_hint.clear();
-    //     right_side.clear();
-    //     right_side_hint.clear();
-    //     names.clear();
-    //     names_hint.clear();
-    //     senses.clear();
-    //     senses_hint.clear();
-
-    //     //done adding to model the constrains
-    //     GRBLinExpr all_migrated_blocks = 0.0;
-    //     GRBLinExpr all_replicated_blocks = 0.0;
-    //     GRBLinExpr totalTraffic = 0.0;
-    //     GRBLinExpr totalClean = 0.0;
-    //     GRBLinExpr totalAdd = 0.0;
-    //     GRBLinExpr totalVolume = 0.0;
-
-    //     for (int i = 0; i < num_of_blocks; i++)
-    //     {
-    //         all_migrated_blocks += blocks_migrated[i] * block_size[i];
-    //         all_replicated_blocks += blocks_replicated[i] * block_size[i];
-    //         if( !blocks_is_in_intersect[i] ) {
-    //             totalTraffic += blocks_migrated[i] * block_size[i] + blocks_replicated[i] * block_size[i];
-    //             totalAdd += blocks_replicated[i] * block_size[i];
-    //         } else {
-    //             totalClean += blocks_migrated[i] * block_size[i];
-    //         }
-    //         total_block_size_Kbytes += block_size[i];
-    //     }
-    //     totalVolume = totalAdd - totalClean;
-    //     T_Kbytes = total_block_size_Kbytes * T_percentage / 100;                //assign the number of bytes to migrate
-    //     epsilon_Kbytes = total_block_size_Kbytes * MM_percentage / 100;    //assign the epsilon in bytes.
-
-    //     std::cout << MM_percentage << " percent is " << epsilon_Kbytes << std::endl;
-
-    //     model.addConstr(totalTraffic <= T_Kbytes);                              // shouldn't pass more than M bytes
-    //     model.addConstr(all_migrated_blocks >= epsilon_Kbytes);                 // shouldn't pass less than epsilon bytes
     //     model.setObjective(totalVolume, GRB_MINIMIZE);                          //minimize the impact we have on the total volume.
 
     //     save_block_size_array(block_size);
