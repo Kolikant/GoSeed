@@ -398,14 +398,9 @@ std::vector<int> calcVolumeIntersect(std::string i_volume, std::string j_volume)
     return intersect_i_j;
 }
 
-std::vector<double> getBlockSizes(std::vector<std::string> &source_volume_list, std::vector<std::pair<int, int>> &num_of_blocks_and_files_sourceVolumes) 
+std::vector<double> getBlockSizes(std::vector<std::string> &source_volume_list, std::pair<int, int> &lastSourceSn_block_file) 
 {
-    int max_block_sn = 0;
-	for (auto &item : num_of_blocks_and_files_sourceVolumes) {
-		max_block_sn = (max_block_sn > item.first ? max_block_sn : item.first);
-	}
-
-    std::vector<double> blockSizes(max_block_sn, 0);
+    std::vector<double> blockSizes(lastSourceSn_block_file.first + 1, 0);
     std::cout << blockSizes.size() << std::endl;
     for (auto &source_volume : source_volume_list) {
         std::ifstream source_volume_stream(source_volume.c_str(), std::ifstream::in);
@@ -658,7 +653,7 @@ void addConstraint_TrafficIsLessThanMaximumTraffic(GRBModel &model, std::vector<
     double maxTrafficInKbytes = total_block_size_Kbytes * maximumTrafficPercentage / 100;                //assign the number of bytes to migrate
 
     GRBLinExpr Sum_C_i_s_t = 0.0;
-    for(int i = 0; i < block_sizes.size(); i++) {
+    for(int i = 0; i < C_i_s_t.size(); i++) {
         for (int source = 0; source < intersects_source_target_blocksn.size(); source++) {
             for (int target = 0; target < intersects_source_target_blocksn[0].size(); target++) {
                 std::vector<int> relevantIntersect = intersects_source_target_blocksn[source][target];
@@ -685,8 +680,7 @@ void addConstraint_MigrationIsAboveMinimumMigration(GRBModel &model, std::vector
     double MMInKbytes = total_block_size_Kbytes * MM_percentage / 100;                //assign the number of bytes to migrate
 
     GRBLinExpr Sum_D_i_s = 0.0;
-
-    for (int i = 0; i < block_sizes.size(); i++) {        
+    for (int i = 0; i < D_i_s.size(); i++) {        
         for (int source = 0; source < source_volume_list.size(); source++) {       
 		    Sum_D_i_s += D_i_s[i][source] * block_sizes[i];
 	    }
@@ -699,7 +693,7 @@ void setObjective(GRBModel &model, std::vector<std::vector<GRBVar*>> &C_i_s_t, s
     GRBLinExpr inner_sum = 0.0;
     GRBLinExpr middle_sum = 0.0;
     GRBLinExpr outer_sum = 0.0;
-    for (int i = 0; i < block_sizes.size(); i++) {        
+    for (int i = 0; i < C_i_s_t.size(); i++) {        
         middle_sum = 0.0;
         for (int source = 0; source < C_i_s_t[i].size(); source++) {       
             inner_sum = 0.0;
@@ -804,8 +798,8 @@ int main(int argc, char *argv[])
         num_of_blocks_and_files_targetVolumes.push_back(num_of_blocks_and_files_j);
     }
 
-    std::vector<double> block_sizes = getBlockSizes(source_volume_list, num_of_blocks_and_files_sourceVolumes);
     std::pair<int, int> lastSourceSn_block_file = getLastBlockAndFileSn(source_volume_list);
+    std::vector<double> block_sizes = getBlockSizes(source_volume_list, lastSourceSn_block_file);
     
     std::vector<std::set<int>> fileSnInVolume = getFileSnInVolumes(source_volume_list);
     // for (int i = 0; i < block_sizes.size(); i++) {
@@ -842,7 +836,7 @@ int main(int argc, char *argv[])
         model.set("Seed", seed.c_str());
         model.set("Threads", number_of_threads.c_str());
 
-        for (int i = 0; i <= lastSourceSn_block_file.first; i++) {
+        for (int i = 0; i < block_sizes.size(); i++) {
             std::vector<GRBVar*> C_s_t;
 
             std::string blocks_deleted_names[source_volume_list.size()] ;
