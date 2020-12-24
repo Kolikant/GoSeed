@@ -694,7 +694,7 @@ void addConstraint_MigrationIsAboveMinimumMigration(GRBModel &model, std::vector
     model.addConstr(Sum_D_i_s >= MMInKbytes);
 }
 
-void setObjective(GRBModel &model, std::vector<std::vector<GRBVar*>> &C_i_s_t, std::vector<GRBVar*> &D_i_s, std::vector<double> &block_sizes, int numOfTargetVolumes)
+void setObjective(GRBModel &model, std::vector<std::vector<GRBVar*>> &C_i_s_t, std::vector<GRBVar*> &D_i_s, std::vector<std::vector<std::vector<int>>> &intersects_source_target_blocksn, std::vector<double> &block_sizes, int numOfTargetVolumes)
 {
     GRBLinExpr inner_sum = 0.0;
     GRBLinExpr middle_sum = 0.0;
@@ -704,7 +704,15 @@ void setObjective(GRBModel &model, std::vector<std::vector<GRBVar*>> &C_i_s_t, s
         for (int source = 0; source < C_i_s_t[i].size(); source++) {       
             inner_sum = 0.0;
             for (int target = 0; target < numOfTargetVolumes; target++) {       
-                inner_sum += C_i_s_t[i][source][target];
+                if(source == target) {
+                    continue;
+                }
+                std::vector<int> relevantIntersect = intersects_source_target_blocksn[source][target];
+                if(std::find(relevantIntersect.begin(), relevantIntersect.end(), i) == relevantIntersect.end()) {
+                    inner_sum += C_i_s_t[i][source][target];
+                } else {
+                    continue;
+                }
             } 
             middle_sum -= D_i_s[i][source];
             middle_sum += inner_sum;
@@ -909,7 +917,7 @@ int main(int argc, char *argv[])
         model.update();
         std::cout << 9 << std::endl;   
 
-        setObjective(model, C_i_s_t, D_i_s, block_sizes, target_volume_list.size());
+        setObjective(model, C_i_s_t, D_i_s, intersects_source_target_blocksn, block_sizes, target_volume_list.size());
         model.update();
         model.write("debud.lp");
 
