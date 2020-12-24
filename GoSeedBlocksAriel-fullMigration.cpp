@@ -402,10 +402,11 @@ std::vector<double> getBlockSizes(std::vector<std::string> &source_volume_list, 
 {
     int max_block_sn = 0;
 	for (auto &item : num_of_blocks_and_files_sourceVolumes) {
-		max_block_sn += item.first;
+		max_block_sn = (max_block_sn > item.first ? max_block_sn : item.first);
 	}
 
     std::vector<double> blockSizes(max_block_sn, 0);
+    std::cout << blockSizes.size() << std::endl;
     for (auto &source_volume : source_volume_list) {
         std::ifstream source_volume_stream(source_volume.c_str(), std::ifstream::in);
         if (!source_volume_stream.is_open())
@@ -672,7 +673,6 @@ void addConstraint_TrafficIsLessThanMaximumTraffic(GRBModel &model, std::vector<
             }
         }
     }
-
     model.addConstr(Sum_C_i_s_t <= maxTrafficInKbytes);
 }
 
@@ -748,7 +748,6 @@ int main(int argc, char *argv[])
     }
 	
     std::string content;
-    std::getline(volume_list_f, content);
 
     std::vector<std::string> source_volume_list;
     std::vector<std::string> target_volume_list;
@@ -765,6 +764,14 @@ int main(int argc, char *argv[])
             target_volume_list.push_back(file_path);
         }
     }
+
+    // for (auto &item : source_volume_list) {
+	// 	std::cout << "src" << item << std::endl;  
+	// }
+
+    // for (auto &item : target_volume_list) {
+	// 	std::cout << "target" << item << std::endl;  
+	// }
 
     std::vector<std::vector<std::vector<int>>> intersects_source_target_blocksn;
     for (int i = 0; i < source_volume_list.size(); i++) {        
@@ -829,25 +836,52 @@ int main(int argc, char *argv[])
 
         for (int i = 0; i <= lastSourceSn_block_file.first; i++) {
             std::vector<GRBVar*> C_s_t;
-            C_i_s_t.push_back(C_s_t);
+
+            std::string blocks_deleted_names[source_volume_list.size()] ;
+            char block_types_delete[source_volume_list.size()] ;
+            
             for (int source = 0; source < source_volume_list.size(); source++) {
-                blocks_copied = model.addVars(target_volume_list.size(), GRB_BINARY);
-                blocks_deleted = model.addVars(target_volume_list.size(), GRB_BINARY);
+                std::string delete_name = std::string("D_") + std::to_string(i) + std::string("_") + std::to_string(source);
+                blocks_deleted_names[source] = delete_name;
+                block_types_delete[source] = GRB_BINARY;
                 
-                C_i_s_t[i].push_back(blocks_copied);
-                D_i_s.push_back(blocks_deleted);
+                std::string blocks_copied_names[target_volume_list.size()] ;
+                char block_types[target_volume_list.size()] ;
+                
+                for(int target = 0 ; target < target_volume_list.size() ; target ++) {
+                    std::string name = std::string("C_") + std::to_string(i) + std::string("_") + std::to_string(source) + std::string("_") + std::to_string(target);
+                    blocks_copied_names[target] = name;
+                    block_types[target] = GRB_BINARY;
+                }
+
+                blocks_copied = model.addVars(NULL, NULL, NULL, block_types, blocks_copied_names, target_volume_list.size());
+                C_s_t.push_back(blocks_copied);
             }
+            C_i_s_t.push_back(C_s_t);
+
+            blocks_deleted = model.addVars(NULL, NULL, NULL, block_types_delete, blocks_deleted_names, source_volume_list.size());
+            D_i_s.push_back(blocks_deleted);
         }
         model.update();
 
         for (int l = 0; l <= lastSourceSn_block_file.second; l++) {
             std::vector<GRBVar*> X_s_t;
-            X_l_s_t.push_back(X_s_t);  
             for (int source = 0; source < source_volume_list.size(); source++) {
-                files = model.addVars(target_volume_list.size(), GRB_BINARY);
                 
-                X_l_s_t[l].push_back(files);
+                std::string file_names[target_volume_list.size()] ;
+                char block_types[target_volume_list.size()] ;
+                
+                for(int target = 0 ; target < target_volume_list.size() ; target ++) {
+                    file_names[target] = std::string("X_") + std::to_string(l) + std::string("_") + std::to_string(source) + std::string("_") + std::to_string(target);
+                    block_types[target] = GRB_BINARY;
+                }
+                files = model.addVars(NULL, NULL, NULL, block_types, file_names, target_volume_list.size());
+                
+                // files = model.addVars(target_volume_list.size(), GRB_BINARY);
+                
+                X_s_t.push_back(files);
             }
+            X_l_s_t.push_back(X_s_t);  
         }
         model.update();
 		std::cout << 1 << std::endl;  
