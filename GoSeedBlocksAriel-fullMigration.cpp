@@ -169,7 +169,7 @@ void calculate_migration_and_save_solution(GRBVar *blocks_migrated, GRBVar *bloc
         std::cout << "Cannot open output file" << print_to << std::endl;
         exit(1);
     }
-    solution << "this is the list of the files we should move:" << std::endl;
+    // solution << "this is the list of the files we should move:" << std::endl;
     for (int i = 0; i < num_of_files; i++)
     {
         if (files[i].get(GRB_DoubleAttr_X) != 0.0) //file is moved
@@ -237,6 +237,64 @@ void calculate_migration_and_save_solution(GRBVar *blocks_migrated, GRBVar *bloc
     solution.close();
 }
 
+void ahhhhh(std::vector<std::vector<GRBVar*>> &X_l_s_t, std::vector<std::vector<GRBVar*>> &C_i_s_t, std::vector<GRBVar*> &D_i_s, int targetVolumeNum, int sourceVolumeNum, std::string print_to) {
+    std::ofstream solution(print_to, std::ios_base::app);
+    if (!solution)
+    {
+        std::cout << "Cannot open output file" << print_to << std::endl;
+        exit(1);
+    }
+    std::cout << C_i_s_t.size() <<"," << C_i_s_t[0].size() << "," << targetVolumeNum;
+    for (int i = 0; i < C_i_s_t.size(); i++) {
+        for (int s = 0; s < C_i_s_t[i].size(); s++) {
+            for (int t = 0; t < targetVolumeNum; t++) {
+                if (C_i_s_t[i][s][t].get(GRB_DoubleAttr_X) != 0.0) //file is moved
+                {
+                    solution << "C_" << i << ": " << s << " -> " << t <<  std::endl;
+                }
+            }
+        }
+    }
+    for (int i = 0; i < X_l_s_t.size(); i++) {
+        for (int s = 0; s < X_l_s_t[i].size(); s++) {
+            for (int t = 0; t < targetVolumeNum; t++) {
+                if (X_l_s_t[i][s][t].get(GRB_DoubleAttr_X) != 0.0) //file is moved
+                {
+                    solution << "X_" << i << ": " << s << " -> " << t <<  std::endl;
+                }
+            }
+        }
+    }
+    for (int i = 0; i < D_i_s.size(); i++) {
+        for (int s = 0; s <sourceVolumeNum; s++) {
+            if (D_i_s[i][s].get(GRB_DoubleAttr_X) != 0.0) //file is moved
+            {
+                solution << "D_" << i << "_" << s <<  std::endl;
+            }
+        }
+    }
+}
+
+void saveSolution(std::vector<std::vector<GRBVar*>> &X_l_s_t, int targetVolumeNum, std::string print_to) {
+    std::ofstream solution(print_to, std::ios_base::app);
+    if (!solution)
+    {
+        std::cout << "Cannot open output file" << print_to << std::endl;
+        exit(1);
+    }
+    solution << "this is the list of the files we should move:" << std::endl;
+    std::cout << X_l_s_t.size() <<"," << X_l_s_t[0].size() << "," << targetVolumeNum;
+    for (int i = 0; i < X_l_s_t.size(); i++) {
+        for (int s = 0; s < X_l_s_t[i].size(); s++) {
+            for (int t = 0; t < targetVolumeNum; t++) {
+                if (X_l_s_t[i][s][t].get(GRB_DoubleAttr_X) != 0.0) //file is moved
+                {
+                    solution << i << ": " << s << " -> " << t <<  std::endl;
+                }
+            }
+        }
+    }
+}
 
 /**
  * @brief Appends to the benchmark summary file the statistics of migration plan with the hyper paramaters passed.
@@ -542,6 +600,46 @@ void addConstraint_DontRemapNonExistantFilesOfRemapToSelf(GRBModel &model, std::
     }
 }
 
+void add_Three_constraints_BlockIsDeletedOnlyIfNoLocalFileUsingItRemains_BlockIsDeletedOnlyIfNoNewFileTransferredIsUsingIt_RemmapedFileHasAllItsBlocks(GRBModel &model, std::vector<std::vector<GRBVar*>> X_l_s_t, std::vector<std::vector<GRBVar*>> &C_i_s_t, std::vector<GRBVar*> &D_i_s, std::vector<std::string> &source_volume_list, int numOfTargetVolumes) {
+    for (int source = 0; source < source_volume_list.size(); source++) {
+        std::ifstream source_volume_stream(source_volume_list[source].c_str(), std::ifstream::in);
+        if (!source_volume_stream.is_open())
+        {
+            std::cout << "error opening volume file - addConstraint_BlockIsDeletedOnlyIfNoLocalFileUsingItRemains" << source_volume_list[source] << std::endl;
+            exit(1);
+        }
+
+        std::string content;
+        std::vector<std::string> splitted_content;
+        while (std::getline(source_volume_stream, content))
+        {
+            splitted_content = split_string(content, ",");
+            if (splitted_content[0] == "F")
+            {
+                int fileSn = std::stoi(splitted_content[1]);
+                int number_of_blocks_in_file_line = std::stoi(splitted_content[4]);
+                for (register int i = 0; i < 2 * number_of_blocks_in_file_line; i += 2) //read block_sn and block_size simultaneously and add constrains to the model.
+                {
+                    int block_sn = std::stoi(splitted_content[5 + i]);
+                    GRBLinExpr BlockIsDeletedOnlyIfNoLocalFileUsingItRemains = 0.0;
+                    for (int target = 0; target < numOfTargetVolumes; target++) {
+                        GRBLinExpr RemmapedFileHasAllItsBlocks = 0.0;
+                        model.addConstr(D_i_s[block_sn][target] <= 1 -  X_l_s_t[fileSn][source][target]); // BlockIsDeletedOnlyIfNoNewFileTransferredIsUsingIt
+                        BlockIsDeletedOnlyIfNoLocalFileUsingItRemains += X_l_s_t[fileSn][source][target];
+                        for (int arbitraryVolume = 0; arbitraryVolume < source_volume_list.size(); arbitraryVolume++) {
+                            RemmapedFileHasAllItsBlocks += C_i_s_t[block_sn][arbitraryVolume][target];
+                        }
+                        model.addConstr(X_l_s_t[fileSn][source][target] <= RemmapedFileHasAllItsBlocks);
+                    }
+                    model.addConstr(D_i_s[block_sn][source] <= BlockIsDeletedOnlyIfNoLocalFileUsingItRemains);
+                }
+            }
+        }
+        source_volume_stream.close();
+	}    
+}
+
+
 void addConstraint_BlockIsDeletedOnlyIfNoLocalFileUsingItRemains(GRBModel &model, std::vector<std::vector<GRBVar*>> &X_l_s_t, std::vector<GRBVar*> &D_i_s, std::vector<std::string> &source_volume_list, int numOfTargetVolumes)
 {
     for (int source = 0; source < source_volume_list.size(); source++) {
@@ -653,18 +751,22 @@ void addConstraint_TrafficIsLessThanMaximumTraffic(GRBModel &model, std::vector<
     double maxTrafficInKbytes = total_block_size_Kbytes * maximumTrafficPercentage / 100;                //assign the number of bytes to migrate
 
     GRBLinExpr Sum_C_i_s_t = 0.0;
-    for(int i = 0; i < C_i_s_t.size(); i++) {
-        for (int source = 0; source < intersects_source_target_blocksn.size(); source++) {
-            for (int target = 0; target < intersects_source_target_blocksn[0].size(); target++) {
-                std::vector<int> relevantIntersect = intersects_source_target_blocksn[source][target];
-                if(source == target) {
-                    continue;
-                }
-                if(std::find(relevantIntersect.begin(), relevantIntersect.end(), i) == relevantIntersect.end()) {
+    for (int source = 0; source < intersects_source_target_blocksn.size(); source++) {
+        for (int target = 0; target < intersects_source_target_blocksn[0].size(); target++) {
+            std::vector<int> relevantIntersect = intersects_source_target_blocksn[source][target];
+            if(source == target) {
+                continue;
+            }
+            int previousIntersectIndex = -1;
+            for(int j = 0; j < relevantIntersect.size(); j++) {
+                int nextIntersectIndex = relevantIntersect[j];
+                for(int i = previousIntersectIndex + 1; i < nextIntersectIndex; i++) {
                     Sum_C_i_s_t += C_i_s_t[i][source][target] * block_sizes[i];
-                } else {
-                    continue;
                 }
+                previousIntersectIndex = nextIntersectIndex;
+            }
+            for(int i = previousIntersectIndex + 1; i < C_i_s_t.size(); i++) {
+                Sum_C_i_s_t += C_i_s_t[i][source][target] * block_sizes[i];
             }
         }
     }
@@ -690,32 +792,79 @@ void addConstraint_MigrationIsAboveMinimumMigration(GRBModel &model, std::vector
 
 void setObjective(GRBModel &model, std::vector<std::vector<GRBVar*>> &C_i_s_t, std::vector<GRBVar*> &D_i_s, std::vector<std::vector<std::vector<int>>> &intersects_source_target_blocksn, std::vector<double> &block_sizes, int numOfTargetVolumes)
 {
-    GRBLinExpr inner_sum = 0.0;
-    GRBLinExpr middle_sum = 0.0;
-    GRBLinExpr outer_sum = 0.0;
-    for (int i = 0; i < C_i_s_t.size(); i++) {        
-        middle_sum = 0.0;
-        for (int source = 0; source < C_i_s_t[i].size(); source++) {       
-            inner_sum = 0.0;
-            for (int target = 0; target < numOfTargetVolumes; target++) {       
-                if(source == target) {
-                    continue;
+    GRBLinExpr sum = 0.0;
+
+    for (int source = 0; source < intersects_source_target_blocksn.size(); source++) {
+        for (int target = 0; target < intersects_source_target_blocksn[0].size(); target++) {
+            std::vector<int> relevantIntersect = intersects_source_target_blocksn[source][target];
+            if(source == target) {
+                continue;
+            }
+            int previousIntersectIndex = -1;
+            for(int j = 0; j < relevantIntersect.size(); j++) {
+                int nextIntersectIndex = relevantIntersect[j];
+                for(int i = previousIntersectIndex + 1; i < nextIntersectIndex; i++) {
+                    sum += C_i_s_t[i][source][target] * block_sizes[i];
                 }
-                std::vector<int> relevantIntersect = intersects_source_target_blocksn[source][target];
-                if(std::find(relevantIntersect.begin(), relevantIntersect.end(), i) == relevantIntersect.end()) {
-                    inner_sum += C_i_s_t[i][source][target];
-                } else {
-                    continue;
-                }
-            } 
-            middle_sum -= D_i_s[i][source];
-            middle_sum += inner_sum;
+                previousIntersectIndex = nextIntersectIndex;
+            }
+            for(int i = previousIntersectIndex + 1; i < C_i_s_t.size(); i++) {
+                sum += C_i_s_t[i][source][target] * block_sizes[i];
+            }
         }
-        outer_sum += block_sizes[i] * middle_sum;
+
+        for(int i = 0; i < C_i_s_t.size(); i++) {
+            sum -= D_i_s[i][source] * block_sizes[i];
+        }
     }
-    model.setObjective(outer_sum, GRB_MINIMIZE);
+    model.setObjective(sum, GRB_MINIMIZE);
 }
 
+void addConstraint_traffic_and_setObjective(GRBModel &model, std::vector<std::vector<GRBVar*>> &C_i_s_t, std::vector<GRBVar*> &D_i_s, std::vector<std::vector<std::vector<int>>> &intersects_source_target_blocksn, std::vector<double> &block_sizes, double maximumTrafficPercentage) {
+    double total_block_size_Kbytes = 0;
+    for (auto &blockSize : block_sizes) {
+		total_block_size_Kbytes += blockSize;
+	}
+    double maxTrafficInKbytes = total_block_size_Kbytes * maximumTrafficPercentage / 100;                //assign the number of bytes to migrate
+
+    GRBLinExpr trafficConstraint = 0.0;
+    GRBLinExpr objective = 0.0;
+
+    for (int source = 0; source < intersects_source_target_blocksn.size(); source++) {
+        bool setSourceDel = false;
+        for (int target = 0; target < intersects_source_target_blocksn[0].size(); target++) {
+            std::vector<int> relevantIntersect = intersects_source_target_blocksn[source][target];
+            if(source == target) {
+                continue;
+            }
+            int previousIntersectIndex = -1;
+            for(int j = 0; j < relevantIntersect.size(); j++) {
+                int nextIntersectIndex = relevantIntersect[j];
+                for(int i = previousIntersectIndex + 1; i < nextIntersectIndex; i++) {
+                    trafficConstraint += C_i_s_t[i][source][target] * block_sizes[i];
+                    objective += C_i_s_t[i][source][target] * block_sizes[i];
+                    if(!setSourceDel) {
+                        objective -= D_i_s[i][source] * block_sizes[i];
+                    }
+                }
+                if(!setSourceDel) {
+                    objective -= D_i_s[nextIntersectIndex][source] * block_sizes[nextIntersectIndex];
+                }
+                previousIntersectIndex = nextIntersectIndex;
+            }
+            for(int i = previousIntersectIndex + 1; i < C_i_s_t.size(); i++) {
+                trafficConstraint += C_i_s_t[i][source][target] * block_sizes[i];
+                objective += C_i_s_t[i][source][target] * block_sizes[i];
+                if(!setSourceDel) {
+                    objective -= D_i_s[i][source] * block_sizes[i];
+                }
+            }
+            setSourceDel = true;
+        }
+    }
+    model.addConstr(trafficConstraint <= maxTrafficInKbytes);
+    model.setObjective(objective, GRB_MINIMIZE); 
+}
 
 int main(int argc, char *argv[])
 {
@@ -896,25 +1045,78 @@ int main(int argc, char *argv[])
         addConstraint_DontRemapNonExistantFilesOfRemapToSelf(model, X_l_s_t, fileSnInVolume, target_volume_list.size());
 		std::cout << 4 << std::endl;  
         model.update();
-        addConstraint_BlockIsDeletedOnlyIfNoLocalFileUsingItRemains(model, X_l_s_t, D_i_s, source_volume_list, target_volume_list.size());
-		std::cout << 5 << std::endl;  
+        // addConstraint_BlockIsDeletedOnlyIfNoLocalFileUsingItRemains(model, X_l_s_t, D_i_s, source_volume_list, target_volume_list.size());
+		// std::cout << 5 << std::endl;  
+        // model.update();
+        // addConstraint_BlockIsDeletedOnlyIfNoNewFileTransferredIsUsingIt(model, X_l_s_t, D_i_s, source_volume_list, target_volume_list.size());
+		// std::cout << 6 << std::endl;  
+        // model.update();
+        // addConstraint_RemmapedFileHasAllItsBlocks(model, X_l_s_t, C_i_s_t, source_volume_list, target_volume_list.size());
+		// std::cout << 7 << std::endl;  
+        // model.update();
+        add_Three_constraints_BlockIsDeletedOnlyIfNoLocalFileUsingItRemains_BlockIsDeletedOnlyIfNoNewFileTransferredIsUsingIt_RemmapedFileHasAllItsBlocks(model, X_l_s_t, C_i_s_t, D_i_s, source_volume_list, target_volume_list.size()); //one parsing of everything instead of 3
+		std::cout << 567 << std::endl;  
         model.update();
-        addConstraint_BlockIsDeletedOnlyIfNoNewFileTransferredIsUsingIt(model, X_l_s_t, D_i_s, source_volume_list, target_volume_list.size());
-		std::cout << 6 << std::endl;  
-        model.update();
-        addConstraint_RemmapedFileHasAllItsBlocks(model, X_l_s_t, C_i_s_t, source_volume_list, target_volume_list.size());
-		std::cout << 7 << std::endl;  
-        model.update();
-        addConstraint_TrafficIsLessThanMaximumTraffic(model, C_i_s_t, intersects_source_target_blocksn, block_sizes, T_percentage);
-        std::cout << 8 << std::endl;  
         addConstraint_MigrationIsAboveMinimumMigration(model, D_i_s, source_volume_list, block_sizes, MM_percentage);
         model.update();
         std::cout << 9 << std::endl;   
 
-        setObjective(model, C_i_s_t, D_i_s, intersects_source_target_blocksn, block_sizes, target_volume_list.size());
+        // addConstraint_TrafficIsLessThanMaximumTraffic(model, C_i_s_t, intersects_source_target_blocksn, block_sizes, T_percentage);
+        // std::cout << 8 << std::endl;  
+        // setObjective(model, C_i_s_t, D_i_s, intersects_source_target_blocksn, block_sizes, target_volume_list.size());
+        addConstraint_traffic_and_setObjective(model, C_i_s_t, D_i_s, intersects_source_target_blocksn, block_sizes, T_percentage);
         model.update();
         model.write("debud.lp");
 
+        auto s1 = std::chrono::high_resolution_clock::now();
+
+        model.optimize();
+        
+        double solver_time = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - s1).count();
+
+        variable_number = model.get(GRB_IntAttr_NumVars);
+        constraint_number = model.get(GRB_IntAttr_NumConstrs);
+
+        // block_size = new double[num_of_blocks];
+        // load_block_size_array_and_del_temp_file(block_size);
+
+        int status = model.get(GRB_IntAttr_Status);
+        if (status == GRB_OPTIMAL)
+        {
+            solution_status = "OPTIMAL";
+        }
+        if (status == GRB_INFEASIBLE)
+        {
+            solution_status = "INFEASIBLE";
+        }
+        if (status == GRB_TIME_LIMIT)
+        {
+            solution_status = "TIME_LIMIT";
+        }
+        std::cout << "done optimization" << std::endl
+                  << std::flush;
+        if (solution_status != "INFEASIBLE")
+        {
+            // Kbytes_to_replicate = model.get(GRB_DoubleAttr_ObjVal);
+            Kbytes_to_replicate = actual_R_Kbytes;
+
+            //print the results.
+            try
+            {
+                // calculate_migration_and_save_solution(blocks_migrated, blocks_replicated, blocks_is_in_intersect, files, write_solution, block_size);
+                saveSolution(X_l_s_t, target_volume_list.size(), write_solution);
+                ahhhhh(X_l_s_t, C_i_s_t, D_i_s, target_volume_list.size(), source_volume_list.size(), write_solution);
+
+            }
+            catch (...)
+            {
+                std::cout << "Exception at print_results, probably can't read variables" << std::endl;
+                solution_status = "TIME_LIMIT_AT_PRESOLVE";
+            }
+        }
+        // delete[] block_size;
+        double elapsed_secs = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - begin).count();
+        save_statistics(elapsed_secs, solver_time);
     } catch(GRBException e) {
         std::cout << "Error code = " << e.getErrorCode() << std::endl;
         std::cout << e.getMessage() << std::endl;
@@ -922,86 +1124,6 @@ int main(int argc, char *argv[])
         std::cout << "Exception during optimization" << std::endl;
     }
 
-    //     model.setObjective(totalVolume, GRB_MINIMIZE);                          //minimize the impact we have on the total volume.
-
-    //     save_block_size_array(block_size);
-    //     delete[] block_size;
-    //     std::cout << "start optimize now..." << std::endl;
-    //     auto s1 = std::chrono::high_resolution_clock::now();
-    //     // model.update();
-    //     // model.write("debud.lp");
-        
-    //     model.optimize();
-        
-    //     double solver_time = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - s1).count();
-
-    //     variable_number = model.get(GRB_IntAttr_NumVars);
-    //     constraint_number = model.get(GRB_IntAttr_NumConstrs);
-
-    //     block_size = new double[num_of_blocks];
-    //     load_block_size_array_and_del_temp_file(block_size);
-
-    //     int status = model.get(GRB_IntAttr_Status);
-    //     if (status == GRB_OPTIMAL)
-    //     {
-    //         solution_status = "OPTIMAL";
-    //     }
-    //     if (status == GRB_INFEASIBLE)
-    //     {
-    //         solution_status = "INFEASIBLE";
-    //     }
-    //     if (status == GRB_TIME_LIMIT)
-    //     {
-    //         solution_status = "TIME_LIMIT";
-    //     }
-    //     std::cout << "done optimization" << std::endl
-    //               << std::flush;
-    //     if (solution_status != "INFEASIBLE")
-    //     {
-    //         // Kbytes_to_replicate = model.get(GRB_DoubleAttr_ObjVal);
-    //         Kbytes_to_replicate = actual_R_Kbytes;
-
-    //         //print the results.
-    //         try
-    //         {
-    //             calculate_migration_and_save_solution(blocks_migrated, blocks_replicated, blocks_is_in_intersect, files, write_solution, block_size);
-    //         }
-    //         catch (...)
-    //         {
-    //             std::cout << "Exception at print_results, probably can't read variables" << std::endl;
-    //             solution_status = "TIME_LIMIT_AT_PRESOLVE";
-    //         }
-    //     }
-    //     delete[] block_size;
-    //     double elapsed_secs = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - begin).count();
-    //     save_statistics(elapsed_secs, solver_time);
-    // }
-    // catch (...)
-    // {
-    //     std::cout << "Exception during optimization" << std::endl;
-    // }
-    // delete[] constrains;
-    // if (need_to_free_hint_constrains)
-    // {
-    //     delete[] constrains_hint;
-    // }
-
-
-
-
-
-    // delete[] source_volume_list;
-    // delete[] target_volume_list;
-    // delete[] intersects_source_target_blocksn;
-    // delete[] num_of_blocks_and_files_sourceVolumes;
-    // delete[] num_of_blocks_and_files_targetVolumes;
-    // delete[] block_sizes;
-    // delete[] fileSnInVolume;
-    // delete[] left_side;
-    // delete[] left_side_hint; //files that does not have blocks should stay at source
-    // delete[] C_i_s_t;
-    // delete[] D_i_s;
-    // delete[] X_l_s_t;
     delete[] blocks_copied;
     delete[] blocks_deleted;
     delete[] files;
